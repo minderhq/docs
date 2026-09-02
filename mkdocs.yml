@@ -1,0 +1,50 @@
+site_name: Minder Docs
+site_description: Documentation for Minder — a local-first, self-hostable AI platform.
+site_url: https://minderhq.github.io/docs/
+repo_url: https://github.com/minderhq/minder
+repo_name: minderhq/minder
+edit_uri: ""
+
+theme:
+  name: material
+  icon:
+    logo: material/brain
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-night
+        name: Dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-sunny
+        name: Light mode
+  features:
+    - navigation.instant
+    - navigation.sections
+    - navigation.top
+    - content.code.copy
+    - search.suggest
+
+markdown_extensions:
+  - admonition
+  - pymdownx.highlight
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - toc:
+      permalink: true
+
+nav:
+  - Home: index.md
+  - Plugins:
+      - Overview: plugins/index.md
+      - Authoring guide: plugins/authoring.md
+      - Contract reference: plugins/contract.md
+      - Publishing: plugins/publishing.md
+      - Manifest plugins: plugins/manifest.md
