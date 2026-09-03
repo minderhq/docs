@@ -13,16 +13,17 @@ a Raspberry Pi) and gives you:
 - **one modern control-plane UI** for everything that isn't chat,
 - and **honest, verifiable** capabilities.
 
-**Open-core + hosted.** The core is open source (Apache-2.0) and yours to
-self-host forever; a hosted option is offered separately for those who'd rather
-not run it themselves — the core never requires it.
+**Proprietary core, open ecosystem.** The Minder platform (core) is a commercial
+product — self-hostable with a license, with a freemium trial planned. Its
+**ecosystem is open source** and the focus of these docs: the plugin SDK, the
+plugin catalog, and the web client, all freely available.
 
 ## Start here
 
 - **[Build a plugin](plugins/index.md)** — extend Minder with a data source, an AI
   tool, or a webhook ingestor, using the plugin SDK.
-- **[The platform](https://github.com/minderhq/minder)** — services, the
-  control-plane UI, and the one-command install.
+- **[Self-hosting the platform](self-hosting.md)** — running the core (licensed;
+  the repository and images are private).
 - **[Plugin SDK](https://github.com/minderhq/plugin-sdk)** — the authoring
   contract, a worked reference plugin, and the `minder-plugin` CLI.
 
