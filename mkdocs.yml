@@ -43,6 +43,7 @@ markdown_extensions:
 nav:
   - Home: index.md
   - Self-hosting: self-hosting.md
+  - CLI: cli.md
   - Plugins:
       - Overview: plugins/index.md
       - Authoring guide: plugins/authoring.md

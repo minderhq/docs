@@ -24,11 +24,13 @@ plugin catalog, and the web client, all freely available.
   tool, or a webhook ingestor, using the plugin SDK.
 - **[Self-hosting the platform](self-hosting.md)** — running the core (licensed;
   the repository and images are private).
+- **[Command-line client](cli.md)** — the open-source `minder` CLI for scripting
+  against a running instance.
 - **[Plugin SDK](https://github.com/minderhq/plugin-sdk)** — the authoring
   contract, a worked reference plugin, and the `minder-plugin` CLI.
 
 !!! note "Docs in progress"
-    This site currently covers the **plugin ecosystem** in full. Self-hosting,
-    architecture, and operations guides are being verified against the code
-    before they're published here — until then, see the
+    This site covers the **plugin ecosystem**, self-hosting, and the CLI.
+    Architecture and deeper operations guides are being verified against the
+    code before they're published here — until then, see the
     [`docs/` in the main repo](https://github.com/minderhq/minder/tree/main/docs).
