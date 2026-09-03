@@ -59,8 +59,10 @@ CONFIG_SCHEMA = [
 ]
 ```
 
-Widgets: `text` · `textarea` · `number` · `toggle` · `select` · `multiselect` ·
-`secret` · `autocomplete`. Unknown widgets fall back to a text input.
+Widgets: `text` · `textarea` · `code` · `secret` · `number` · `slider` ·
+`toggle` · `select` · `multiselect` · `radio` · `autocomplete` · `date` ·
+`datetime` · `color` · `file` · `kv-list`. Unknown widgets fall back to a text
+input.
 
 ## Test it
 
