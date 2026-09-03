@@ -43,6 +43,7 @@ markdown_extensions:
 nav:
   - Home: index.md
   - Self-hosting: self-hosting.md
+  - Using Minder: using-minder.md
   - CLI: cli.md
   - Plugins:
       - Overview: plugins/index.md
