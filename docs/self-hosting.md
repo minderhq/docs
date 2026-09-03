@@ -70,8 +70,8 @@ bash setup.sh update      # git pull already done → rebuild + rolling restart
 ## Manage it
 
 Everything that isn't chat has a modern control-plane UI (the `minder-client`
-SPA); chat itself is OpenWebUI. Extend the platform with
-[plugins](plugins/index.md).
+SPA) — see [Using Minder](using-minder.md) for a tour; chat itself is
+OpenWebUI. Extend the platform with [plugins](plugins/index.md).
 
 !!! note
     Deeper operations, architecture, and hardening guides ship with the licensed
