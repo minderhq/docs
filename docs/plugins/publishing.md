@@ -22,9 +22,13 @@ a top-level `<name>/__init__.py` package that imports from `minder_plugin_sdk`.
 
 ## How it reaches a running Minder
 
-The catalog is **vendored into the core** at `src/plugins/` via a git submodule,
-so the plugin-registry loads it on startup — no per-plugin install, and a
-`--recurse-submodules` clone stays offline-friendly.
+The plugin-registry **discovers and loads module plugins on startup** and lists
+them at `/v1/plugins`. By design nothing runs arbitrary code — a plugin is fixed
+handlers (or a declarative [manifest](manifest.md)), never uploaded code — so
+loading a catalog plugin is safe. First-party plugins ship inside the Minder
+core; wiring a running instance to also load this public catalog is a
+per-deployment integration step (git-submodule vendoring — the way the web
+client is already pulled in — is planned but not yet wired).
 
 ## Governance
 
