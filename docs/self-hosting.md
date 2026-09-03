@@ -1,7 +1,13 @@
 # Self-hosting Minder
 
-Minder is **local-first**: it runs entirely on hardware you own, provisioned by a
-single command. Everything below is the open-source core (Apache-2.0).
+Minder's core is a **proprietary product** — local-first, running entirely on
+hardware you own and provisioned by a single command. Self-hosting the core needs
+**licensed access** (the repository and container images are private); a freemium
+trial is planned.
+
+> The **open-source** side of Minder — the [plugin SDK](plugins/index.md), the
+> plugin catalog, and the web client — is freely available. This page covers
+> running the (licensed) core; the steps below assume you have access.
 
 ## Requirements
 
@@ -13,6 +19,7 @@ single command. Everything below is the open-source core (Apache-2.0).
 ## Install
 
 ```bash
+# Requires licensed access to the private minderhq/minder repo + images.
 git clone https://github.com/minderhq/minder.git
 cd minder
 bash setup.sh install --profile standard   # minimal | standard | full
@@ -67,6 +74,5 @@ SPA); chat itself is OpenWebUI. Extend the platform with
 [plugins](plugins/index.md).
 
 !!! note
-    Deeper operations, architecture, and hardening guides are being verified
-    against the code before they're published here — until then see the
-    [`docs/` in the main repo](https://github.com/minderhq/minder/tree/main/docs).
+    Deeper operations, architecture, and hardening guides ship with the licensed
+    core; the plugin-ecosystem docs on this site are the openly available subset.
