@@ -144,6 +144,16 @@ contain stack traces treated as sensitive.
   (role changes, org/member management, plugin review, and more), with
   actor, time, source, and before/after state.
 
+### Billing (`/billing`)
+
+Your organization's current plan: tier, status (a colored badge — active,
+past-due/unpaid/paused, or canceled/expired), renewal date, and the provider
+handling it. On the free plan, buttons start a hosted checkout for an upgrade
+tier; on a paid plan, "manage" opens the provider's customer portal to update
+payment or cancel. Requires billing to be configured on this instance (a
+provider API key + tier→plan mapping) — otherwise upgrading is unavailable and
+the page just shows the free baseline.
+
 ### Settings (`/settings`)
 
 Your own account as Minder currently sees it (username, email, role) and a
