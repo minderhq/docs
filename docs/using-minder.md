@@ -75,6 +75,25 @@ document's graph-visibility (private/shared/team), and delete a document from
 the graph. It's a separate graph from the plugin-dependency graph shown on
 the Marketplace pages — same Neo4j instance, unrelated data.
 
+### Conversations (`/rag/conversations`)
+
+Every thread you've started in **Ask**, across any pipeline, most-recently-active
+first — reopen one to continue it instead of hunting for it inside a single
+pipeline. It's your own history, so it needs login.
+
+### Entity Merge Review (`/rag/entity-merges`)
+
+Scans the knowledge graph for one real-world entity showing up as more than one
+node (often across orgs) and proposes merges. Cross-org merges are
+**dual-control** — each side's owner must approve before the merge applies, so
+one tenant can't unilaterally fold another's data together. Owner/admin work.
+
+### Taxonomy Review (`/rag/taxonomy-review`)
+
+A curation queue for the graph's **entity-type taxonomy**: pending suggestions
+(e.g. a newly-seen entity type) to approve or reject, so the graph keeps a
+coherent schema instead of every extraction inventing its own types. Admin work.
+
 ## Extending: plugins, tools, bundles
 
 Three related-but-distinct surfaces, each with a browsable "available" view
@@ -125,6 +144,13 @@ Health, reported version, and recent logs for every core service. The health
 grid itself is open to everyone; viewing logs needs login, since they can
 contain stack traces treated as sensitive.
 
+### Backups (`/platform/backups`)
+
+Enqueue a full backup of the platform's data and, when you need it, **restore**
+from one — a guarded action behind an explicit confirm. Both run as background
+jobs listed under "Recent Jobs" with their status. Admin-only: it touches every
+service's data.
+
 ## Teams & organizations
 
 - **Teams** (`/teams`) — group users into teams. Any logged-in user can
@@ -136,6 +162,10 @@ contain stack traces treated as sensitive.
 - **Organization** (`/organization`) — your organization, its members, and
   switching between orgs you belong to (invite links can be copied or
   revoked here too).
+- **Billing** (`/billing`) — your organization's current plan and subscription
+  (tier, renewal date). Upgrades and payment-method changes hand off to the
+  billing provider's secure hosted pages / customer portal rather than taking
+  card details in-app. Org owner/admin.
 - **All Organizations** (admin-only) — every organization on the instance,
   and a form to provision a new one (it gets a primary owner and a default
   team automatically).
