@@ -3,9 +3,20 @@ name: Docs
 on:
   push:
     branches: [main]
+    # NOT docs/** -- that's exactly what this workflow validates/publishes.
+    # Only the repo's own root files (not part of the built site) are safe to skip.
+    paths-ignore: [ 'README.md', 'LICENSE' ]
   pull_request:
     branches: [main]
+    paths-ignore: [ 'README.md', 'LICENSE' ]
   workflow_dispatch:
+
+# Cancel a superseded run of THIS workflow on the same ref -- a new push to a
+# PR branch, or a newer merge to main, cancels the older in-flight/queued run
+# instead of piling a redundant one onto the org's constrained self-hosted pool.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
