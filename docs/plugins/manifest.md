@@ -42,6 +42,19 @@ Or: `minder-plugin validate manifest.yaml`. The JSON Schema (draft-07) ships wit
 the SDK. Install the optional `jsonschema` extra for full validation and `pyyaml`
 to parse YAML text.
 
+### Fetch the schema live
+
+A running plugin-registry also serves the same JSON Schema, unauthenticated, at
+**`GET /v1/plugins/schema`** — fetch it to validate a manifest from any language,
+tool, or CI pipeline without the Python SDK:
+
+```bash
+curl -s https://<your-instance>/v1/plugins/schema | jq .
+```
+
+The response is a self-contained draft-07 document (carries its own `$schema` and
+`title`), so any JSON-Schema validator can consume it directly.
+
 > **Why `v1alpha1`, not `v1`?** This declarative format is intentionally versioned
 > separately from the Python plugin contract's `minder.dev/v1` (see
 > [contract reference](contract.md)) — the manifest schema is still experimental
