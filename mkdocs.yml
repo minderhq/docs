@@ -1,9 +1,9 @@
 site_name: Minder Docs
 site_description: Documentation for Minder — a local-first, self-hostable AI platform.
 site_url: https://minderhq.github.io/docs/
-repo_url: https://github.com/minderhq/minder
-repo_name: minderhq/minder
-edit_uri: ""
+repo_url: https://github.com/minderhq/docs
+repo_name: minderhq/docs
+edit_uri: edit/main/docs/
 
 theme:
   name: material
