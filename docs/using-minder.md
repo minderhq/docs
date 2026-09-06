@@ -132,6 +132,26 @@ to any logged-in user; pulling and deleting a model need an admin account.
     → Ollama → Manage offers the same pull/delete against the same Ollama
     instance, with more per-model settings (system prompts, parameters).
 
+### Cloud Providers (`/platform/providers`)
+
+Connect an external OpenAI-compatible provider (OpenAI, z.ai, OpenRouter,
+Together, Azure OpenAI, …) or Anthropic so its models appear alongside your
+local Ollama models. Admin-only, per-organization, and opt-in — nothing here
+is on by default, and your local setup keeps working exactly as before if you
+never add one.
+
+To connect a provider: give it a name, pick the adapter (OpenAI-compatible or
+Anthropic), optionally set a base URL for a non-default vendor, and paste the
+API key. The key is encrypted at rest and never shown again in full — only a
+masked form (e.g. `sk-...ab12`). You can disable a provider without deleting
+it, or delete it outright; there's no separate "edit" yet, so to change a
+name, base URL, or key, delete and re-add.
+
+!!! warning
+    Once connected, prompts routed to that provider's models leave your
+    machine and are billed by the vendor — the opposite of the local-only
+    default.
+
 ### Voice (`/platform/voice`)
 
 Try Minder's text-to-speech and speech-to-text engines directly in the
