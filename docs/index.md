@@ -20,19 +20,46 @@ plugin catalog, and the web client, all freely available.
 
 ## Start here
 
-- **[Build a plugin](plugins/index.md)** — extend Minder with a data source, an AI
-  tool, or a webhook ingestor, using the plugin SDK.
-- **[Self-hosting the platform](self-hosting.md)** — running the core (licensed;
-  the repository and images are private).
-- **[Using Minder](using-minder.md)** — the control-plane UI: knowledge bases,
-  RAG pipelines, the graph, plugins, models, and admin.
-- **[Command-line client](cli.md)** — the open-source `minder` CLI for scripting
-  against a running instance.
-- **[Plugin SDK](https://github.com/minderhq/plugin-sdk)** — the authoring
-  contract, a worked reference plugin, and the `minder-plugin` CLI.
+<div class="grid cards" markdown>
+
+-   :material-puzzle-outline:{ .lg .middle } &nbsp;__Build a plugin__
+
+    ---
+
+    Extend Minder with a data source, an AI tool, or a webhook ingestor using the
+    plugin SDK — declarative, no uploaded code.
+
+    [:octicons-arrow-right-24: Plugin guide](plugins/index.md)
+
+-   :material-server:{ .lg .middle } &nbsp;__Self-host the platform__
+
+    ---
+
+    Run the core on hardware you own (licensed; the repository and images are
+    private).
+
+    [:octicons-arrow-right-24: Self-hosting](self-hosting.md)
+
+-   :material-view-dashboard-outline:{ .lg .middle } &nbsp;__Use Minder__
+
+    ---
+
+    The control-plane UI: knowledge bases, RAG pipelines, the graph, plugins,
+    models, and admin.
+
+    [:octicons-arrow-right-24: Using Minder](using-minder.md)
+
+-   :material-console:{ .lg .middle } &nbsp;__Command-line client__
+
+    ---
+
+    The open-source `minder` CLI for scripting against a running instance.
+
+    [:octicons-arrow-right-24: CLI](cli.md)
+
+</div>
 
 !!! note "Docs in progress"
     This site covers the **plugin ecosystem**, self-hosting, the control-plane
-    UI, and the CLI. Architecture and deeper operations guides are being
-    verified against the code before they're published here — until then, see
-    the [`docs/` in the main repo](https://github.com/minderhq/minder/tree/main/docs).
+    UI, and the CLI. Architecture and deeper operations guides are being verified
+    against the code before they're published here.
