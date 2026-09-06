@@ -41,3 +41,10 @@ validate_manifest(open("manifest.yaml").read())   # raises ManifestError if inva
 Or: `minder-plugin validate manifest.yaml`. The JSON Schema (draft-07) ships with
 the SDK. Install the optional `jsonschema` extra for full validation and `pyyaml`
 to parse YAML text.
+
+> **Why `v1alpha1`, not `v1`?** This declarative format is intentionally versioned
+> separately from the Python plugin contract's `minder.dev/v1` (see
+> [contract reference](contract.md)) — the manifest schema is still experimental
+> and may gain breaking changes as more trigger/action types are added, while the
+> Python `PluginMetadata.api_version` is stable. Don't copy one string into the
+> other's field; `validate_manifest` only accepts `minder.dev/v1alpha1` here.

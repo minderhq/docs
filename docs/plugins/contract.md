@@ -9,7 +9,7 @@ Returned by `register()`. Fields the registry reads:
 | `name` / `version` / `description` / `author` | `str` | required |
 | `dependencies` / `capabilities` / `data_sources` / `databases` | `list[str]` | optional metadata |
 | `registered_at` | `datetime` | defaults to now (UTC) |
-| `api_version` | `str` | defaults to `minder.dev/v1` |
+| `api_version` | `str` | defaults to `minder.dev/v1` (stable — distinct from the [manifest](manifest.md)'s `minder.dev/v1alpha1`; the two surfaces version independently, don't reuse one for the other) |
 
 ## Lifecycle (`Plugin` protocol)
 
