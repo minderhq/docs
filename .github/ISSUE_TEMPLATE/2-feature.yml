@@ -1,0 +1,17 @@
+name: New documentation request
+description: Propose a new page, section, or guide
+title: "[feature]: "
+type: Feature
+labels: ["status:triage"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What's missing?
+      description: What documentation gap does this fill? Who would use it?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed content / outline
