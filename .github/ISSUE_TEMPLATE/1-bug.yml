@@ -1,0 +1,21 @@
+name: Documentation issue
+description: Something is wrong, missing, or unclear in the docs
+title: "[docs]: "
+type: Bug
+labels: ["status:triage"]
+body:
+  - type: input
+    id: page
+    attributes:
+      label: Page URL
+      description: The specific docs page this is about, if applicable.
+  - type: textarea
+    id: description
+    attributes:
+      label: What's wrong, missing, or unclear?
+    validations:
+      required: true
+  - type: textarea
+    id: suggestion
+    attributes:
+      label: Suggested fix (if you have one)
