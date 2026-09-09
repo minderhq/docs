@@ -73,7 +73,9 @@ entities and relationships from your text, Neo4j stores them, and this page
 lets you build the graph, explore it, review entity correlations, manage a
 document's graph-visibility (private/shared/team), and delete a document from
 the graph. It's a separate graph from the plugin-dependency graph shown on
-the Marketplace pages — same Neo4j instance, unrelated data.
+the Marketplace pages — same Neo4j instance, unrelated data. See
+[Knowledge graph](knowledge-graph.md) for the graph API, the correlation engine,
+and the review queues.
 
 ### Conversations (`/rag/conversations`)
 
@@ -118,7 +120,8 @@ and a "what's actually active" view:
   you haven't turned on; "Installed" shows what's on, the Docker image each
   claimed service actually runs, and export/import for the whole set.
   Browsing is open to everyone; enabling/disabling/reconciling needs an
-  **admin** account (not just any login).
+  **admin** account (not just any login). See [Bundles](bundles.md) for the
+  model and the CLI.
 
 ## Models & voice
 
@@ -169,9 +172,13 @@ contain stack traces treated as sensitive.
 Enqueue a full backup of the platform's data and, when you need it, **restore**
 from one — a guarded action behind an explicit confirm. Both run as background
 jobs listed under "Recent Jobs" with their status. Admin-only: it touches every
-service's data.
+service's data. See [Backup & restore](backup-restore.md) for what's captured,
+the job-queue model, and the guarded restore.
 
 ## Teams & organizations
+
+See [Organizations & teams](organizations-teams.md) for the roles, guards, and
+invite flow behind these pages.
 
 - **Teams** (`/teams`) — group users into teams. Any logged-in user can
   create one (and becomes its team admin); managing an existing team's
