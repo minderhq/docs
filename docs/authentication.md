@@ -121,7 +121,8 @@ membership in the `admins` group becomes `role: admin`, everyone else gets
 
 Role checks currently cover a specific set of admin-only actions — a model
 pull/delete, a bundle enable/disable/reconcile, and listing who installed a
-marketplace plugin — plus the organizations/teams/RBAC surface:
+marketplace plugin — plus the organizations/teams/RBAC surface (see
+[Organizations & teams](organizations-teams.md)):
 
 - Any authenticated user can create a team (becoming its `team_admin`).
 - Updating or deleting a team, managing its membership, and issuing, listing, or
