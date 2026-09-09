@@ -13,22 +13,25 @@ theme:
   palette:
     - media: "(prefers-color-scheme: light)"
       scheme: default
-      primary: indigo
-      accent: indigo
+      primary: teal
+      accent: teal
       toggle:
         icon: material/weather-night
         name: Dark mode
     - media: "(prefers-color-scheme: dark)"
       scheme: slate
-      primary: indigo
-      accent: indigo
+      primary: teal
+      accent: teal
       toggle:
         icon: material/weather-sunny
         name: Light mode
   features:
     - navigation.instant
     - navigation.tracking
+    - navigation.tabs
+    - navigation.tabs.sticky
     - navigation.sections
+    - navigation.indexes
     - navigation.top
     - navigation.footer
     - content.code.copy
@@ -74,24 +77,28 @@ copyright: Copyright &copy; 2026 Minder (minderhq)
 nav:
   - Home: index.md
   - Vision: vision.md
-  - Self-hosting: self-hosting.md
-  - AI setup: ai-setup.md
-  - Authentication: authentication.md
-  - Security: security.md
-  - External services: external-services.md
-  - Production: production.md
-  - Upgrading: upgrades.md
-  - PostgreSQL: postgresql.md
-  - Service access: service-access.md
-  - Using Minder: using-minder.md
-  - RAG methods: rag-methods.md
-  - Remote access: remote-access.md
-  - Troubleshooting: troubleshooting.md
-  - Monitoring: monitoring.md
-  - Performance: performance.md
-  - Hardware optimization: hardware-optimization.md
-  - CLI: cli.md
-  - API reference: api-reference.md
+  - Getting started:
+      - Self-hosting: self-hosting.md
+      - AI setup: ai-setup.md
+      - Authentication: authentication.md
+      - Security: security.md
+      - External services: external-services.md
+  - Using Minder:
+      - Overview: using-minder.md
+      - RAG methods: rag-methods.md
+      - Remote access: remote-access.md
+  - Operations:
+      - Production: production.md
+      - Upgrading: upgrades.md
+      - PostgreSQL: postgresql.md
+      - Service access: service-access.md
+      - Monitoring: monitoring.md
+      - Performance: performance.md
+      - Hardware optimization: hardware-optimization.md
+      - Troubleshooting: troubleshooting.md
+  - Reference:
+      - CLI: cli.md
+      - API reference: api-reference.md
   - Plugins:
       - Overview: plugins/index.md
       - Authoring guide: plugins/authoring.md
