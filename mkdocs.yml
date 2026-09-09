@@ -77,10 +77,14 @@ nav:
   - AI setup: ai-setup.md
   - Authentication: authentication.md
   - External services: external-services.md
+  - Production: production.md
+  - PostgreSQL: postgresql.md
   - Using Minder: using-minder.md
   - RAG methods: rag-methods.md
   - Remote access: remote-access.md
   - Troubleshooting: troubleshooting.md
+  - Monitoring: monitoring.md
+  - Performance: performance.md
   - CLI: cli.md
   - Plugins:
       - Overview: plugins/index.md
