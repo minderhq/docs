@@ -65,6 +65,5 @@ collections, `key: value` for objects, plain text for a chat reply. Pass
 !!! note
     The CLI talks to whatever instance you point it at with `--api-url` — it
     doesn't run the platform itself. See [Self-hosting](self-hosting.md) to
-    stand up an instance first. The same operations are also available from
-    the browser-based control-plane UI, which isn't documented on this site
-    yet ([minderhq/docs#6](https://github.com/minderhq/docs/issues/6)).
+    stand up an instance first. The same operations are also available from the
+    browser-based control-plane UI — see [Using Minder](using-minder.md).
