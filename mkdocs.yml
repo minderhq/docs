@@ -73,6 +73,7 @@ copyright: Copyright &copy; 2026 Minder (minderhq)
 
 nav:
   - Home: index.md
+  - Vision: vision.md
   - Self-hosting: self-hosting.md
   - AI setup: ai-setup.md
   - Authentication: authentication.md
@@ -89,6 +90,7 @@ nav:
   - Performance: performance.md
   - Hardware optimization: hardware-optimization.md
   - CLI: cli.md
+  - API reference: api-reference.md
   - Plugins:
       - Overview: plugins/index.md
       - Authoring guide: plugins/authoring.md
