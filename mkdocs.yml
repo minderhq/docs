@@ -78,13 +78,16 @@ nav:
   - Authentication: authentication.md
   - External services: external-services.md
   - Production: production.md
+  - Upgrading: upgrades.md
   - PostgreSQL: postgresql.md
+  - Service access: service-access.md
   - Using Minder: using-minder.md
   - RAG methods: rag-methods.md
   - Remote access: remote-access.md
   - Troubleshooting: troubleshooting.md
   - Monitoring: monitoring.md
   - Performance: performance.md
+  - Hardware optimization: hardware-optimization.md
   - CLI: cli.md
   - Plugins:
       - Overview: plugins/index.md
