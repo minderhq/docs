@@ -77,6 +77,7 @@ nav:
   - Self-hosting: self-hosting.md
   - AI setup: ai-setup.md
   - Authentication: authentication.md
+  - Security: security.md
   - External services: external-services.md
   - Production: production.md
   - Upgrading: upgrades.md
