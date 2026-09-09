@@ -65,10 +65,11 @@ jobs:
     # Publish main to GitHub Pages (enable Pages → "GitHub Actions" in repo settings).
     if: github.ref == 'refs/heads/main'
     needs: build
-    # push (trusted, post-merge) runs on the org's self-hosted pool; pull_request
-    # (including from forks -- this repo is public) stays on GitHub-hosted so an
-    # external contributor's PR never executes on our infrastructure.
-    runs-on: ${{ github.event_name == 'push' && fromJSON('["self-hosted","Linux","X64","org-shared"]') || 'ubuntu-latest' }}
+    # Always GitHub-hosted: this job only runs actions/deploy-pages (no build,
+    # no repo code executes), and that action's OIDC id-token fetch can time out
+    # on the self-hosted pool ("Failed to get ID Token"), which fails the Pages
+    # deploy. GitHub-hosted has reliable OIDC and costs no self-hosted time.
+    runs-on: ubuntu-latest
     permissions:
       pages: write
       id-token: write
