@@ -5,6 +5,13 @@ repo_url: https://github.com/minderhq/docs
 repo_name: minderhq/docs
 edit_uri: edit/main/docs/
 
+# Validate internal links + their #anchors against real headings. With
+# `mkdocs build --strict` (the CI gate) these become build errors, so a broken
+# cross-page anchor can't ship.
+validation:
+  links:
+    anchors: warn
+
 theme:
   name: material
   icon:
