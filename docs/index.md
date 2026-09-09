@@ -59,7 +59,7 @@ plugin catalog, and the web client, all freely available.
 
 </div>
 
-!!! note "Docs in progress"
-    This site covers the **plugin ecosystem**, self-hosting, the control-plane
-    UI, and the CLI. Architecture and deeper operations guides are being verified
-    against the code before they're published here.
+!!! note
+    This site covers self-hosting, day-to-day use, operations, the HTTP API, the
+    CLI, and the plugin ecosystem. Architecture **decision records** live in the
+    private `minderhq/adrs` repo rather than here.
