@@ -74,6 +74,7 @@ copyright: Copyright &copy; 2026 Minder (minderhq)
 nav:
   - Home: index.md
   - Self-hosting: self-hosting.md
+  - AI setup: ai-setup.md
   - Using Minder: using-minder.md
   - RAG methods: rag-methods.md
   - CLI: cli.md
