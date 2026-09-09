@@ -75,6 +75,7 @@ nav:
   - Home: index.md
   - Self-hosting: self-hosting.md
   - Using Minder: using-minder.md
+  - RAG methods: rag-methods.md
   - CLI: cli.md
   - Plugins:
       - Overview: plugins/index.md
