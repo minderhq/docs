@@ -78,6 +78,7 @@ nav:
   - Home: index.md
   - Vision: vision.md
   - Getting started:
+      - Quickstart: quickstart.md
       - Self-hosting: self-hosting.md
       - AI setup: ai-setup.md
       - Authentication: authentication.md
@@ -89,6 +90,7 @@ nav:
       - Remote access: remote-access.md
   - Operations:
       - Production: production.md
+      - Bundles: bundles.md
       - Upgrading: upgrades.md
       - PostgreSQL: postgresql.md
       - Service access: service-access.md
