@@ -143,7 +143,8 @@ no-op identical to standard dense retrieval.
 
 Entity extraction and knowledge-graph retrieval, served by the `graph-rag`
 service (spaCy NER + Neo4j) — a separate surface from the vector pipeline above.
-See [Using Minder](using-minder.md#knowledge-graph-raggraph) for the control-plane UI.
+See [Knowledge graph](knowledge-graph.md) for the graph API, or
+[Using Minder](using-minder.md#knowledge-graph-raggraph) for the control-plane UI.
 
 ## Enhancers
 
