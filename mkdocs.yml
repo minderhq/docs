@@ -86,12 +86,15 @@ nav:
       - External services: external-services.md
   - Using Minder:
       - Overview: using-minder.md
+      - Organizations & teams: organizations-teams.md
       - RAG methods: rag-methods.md
+      - Knowledge graph: knowledge-graph.md
       - Remote access: remote-access.md
   - Operations:
       - Production: production.md
       - Bundles: bundles.md
       - Upgrading: upgrades.md
+      - Backup & restore: backup-restore.md
       - PostgreSQL: postgresql.md
       - Service access: service-access.md
       - Monitoring: monitoring.md
