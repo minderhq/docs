@@ -35,6 +35,7 @@ is the product name for a sellable one. See the
 
 ```bash
 # scaffold a plugin (or click "Use this template" on plugin-template)
+pip install minder-plugin-sdk        # once published; or from source:
 pip install "git+https://github.com/minderhq/plugin-sdk"
 minder-plugin scaffold my-plugin
 

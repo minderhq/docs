@@ -3,6 +3,8 @@
 ## Install
 
 ```bash
+pip install minder-plugin-sdk        # once published
+# or, from source:
 pip install "git+https://github.com/minderhq/plugin-sdk"
 ```
 
