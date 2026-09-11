@@ -44,7 +44,10 @@ This is the core loop: get documents in, then ask questions over them.
 ### Knowledge Bases (`/rag`)
 
 Create a knowledge base (name + optional description) and upload documents to
-it — this is the data your pipelines search over. Upload runs as a background
+it — this is the data your pipelines search over. A wide range of file types is
+accepted (PDF, Word, spreadsheets, images via OCR, audio/video via transcription,
+and more), with the type detected from content rather than the extension — see
+[Ingestion & file formats](ingestion.md). Upload runs as a background
 job: the response comes back immediately as `processing`, and the page polls
 until it flips to `completed` (with chunk/vector counts) or `failed`. Each
 document can be expanded to inspect its actual stored chunks — useful for
