@@ -99,6 +99,8 @@ at login/OIDC-callback time and carried forward unchanged on refresh (matching
 | POST | `/v1/teams/{team_id}/members` | Add a member — body `{user_id, team_role: "member"\|"team_admin"}` — that team's `team_admin` or an instance admin |
 | PATCH | `/v1/teams/{team_id}/members/{user_id}` | Change a member's `team_role` — same permission. **409** if this would demote the team's sole remaining `team_admin` (unless the caller is an instance admin) |
 | DELETE | `/v1/teams/{team_id}/members/{user_id}` | Remove a member — that team's `team_admin`/instance admin, **or the member removing themselves**. Same last-`team_admin` 409 guard applies to a self-removal |
+| GET | `/v1/teams/{team_id}/export` | Export the team's own subset as a downloadable JSON bundle — team metadata, the roster, and the **team-shared** (`visibility='team'`) KBs/pipelines only (private/shared KBs and org-global plugin config are out of scope; document/vector payloads are **excluded**). That team's `team_admin` or an instance/platform admin. Audited |
+| POST | `/v1/teams/{team_id}/import` | Import a team bundle into this team — body `{bundle, policy?}` (`skip`/`rename`/`fail`, same semantics and **422** conditions as the org import). Imported rows are stamped to this team; members join as plain `member`. Same permission; audited. A team bundle can't be imported through the org endpoint or vice-versa (distinct bundle formats) |
 | POST | `/v1/invites` | Issue a team invite — body `{email, team_id, team_role}`. That team's `team_admin` or an instance admin. Invite defaults to a 7-day expiry |
 | GET | `/v1/invites?team_id=` | List a team's invites, paginated — that team's `team_admin` or an instance admin |
 | POST | `/v1/invites/{invite_id}/revoke` | Revoke a pending invite — same permission (restricted to `team_admin`/instance admin, not the invited email) |
@@ -127,6 +129,8 @@ Gateway-native routes, not proxied.
 | POST | `/v1/organizations/{org_id}/invites` | Invite a user to the org by email — body `{email, org_role, max_uses}`. Same permission as member management |
 | GET | `/v1/organizations/{org_id}/invites` | List an org's pending/spent invites, paginated. Same permission |
 | POST | `/v1/organizations/{org_id}/invites/{invite_id}/revoke` | Revoke a pending org invite. Same permission. **404** if the invite doesn't belong to this org |
+| GET | `/v1/organizations/{org_id}/export` | Export the org's structured data as a downloadable JSON bundle (org metadata, member list by email, KB **metadata**, pipelines, org-global plugin config — large document/vector payloads are **excluded**). Same permission as member management (org `owner`/`admin` or instance/platform admin). Served as a file attachment; audited |
+| POST | `/v1/organizations/{org_id}/import` | Import a bundle into this org — body `{bundle, policy?}`, `policy` one of `skip` (default) / `rename` / `fail` (**422** otherwise, or on a bad format/version or a `fail`-policy collision). All policies are non-destructive; imported members always join as plain `member`. Returns a report of what was written and every conflict resolved. Same permission; audited |
 
 Org-invite redemption reuses the already-documented
 `POST /v1/invites/by-token/{token}/redeem` — there is no separate
@@ -342,6 +346,17 @@ in PostgreSQL; the dependency/conflict graph is backed by **Neo4j**.
 | GET | `/v1/marketplace/plugins/{plugin_id}/installations` | List installations for a plugin, all users (admin-gated) |
 | GET | `/v1/marketplace/installations/me` | List the *authenticated user's* installed plugins, across the whole catalog, with plugin metadata inlined — a disjoint prefix, not nested under `/plugins/`, since `GET /plugins/{plugin_id}` is registered first and would swallow a literal segment like `installed` as `{plugin_id}` |
 
+### Ratings & reviews (`/v1/marketplace/plugins/{plugin_id}/ratings`)
+
+End-user star ratings on an already-approved plugin — distinct from the
+admin submission-approval workflow below. The aggregate (`rating_average`,
+`rating_count`) is also mirrored onto each plugin's catalog entry.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/v1/marketplace/plugins/{plugin_id}/ratings` | The plugin's aggregate plus its individual reviews, newest first — paginated via `limit` (1–100, default 20) / `offset`. Public read. **404** if the plugin is unknown |
+| POST | `/v1/marketplace/plugins/{plugin_id}/ratings` | Submit or edit the caller's own rating — body `{rating: 1–5, review_text?}` (`review_text` ≤ 4000 chars). **Install-gated:** **403** unless the caller has an installation row for this plugin (a since-uninstalled one still counts). One review per user per plugin — a second submission **upserts** (edits) the existing one rather than erroring. **201**; **404** if the plugin is unknown |
+
 ### Submission / review workflow (`/v1/marketplace/submissions`)
 
 The human side of the catalog: a developer's listing is created as a `draft` via
@@ -496,6 +511,26 @@ Model lifecycle over the Ollama runtime.
 | POST | `/models/{model_id}/test` | Quick test-prompt inference — body `{"prompt": "..."}`. JWT-gated (any logged-in user, not admin-only — deliberate self-service intent) and rate-limited (5/min) |
 | GET | `/health` | Service health |
 | GET | `/metrics` | Prometheus metrics |
+
+### Cloud model providers (`/v1/model-providers`)
+
+The credential vault behind the [Cloud Providers](using-minder.md#cloud-providers-platformproviders)
+page: per-org, admin-managed connections to an OpenAI-compatible or Anthropic
+vendor — or a self-hosted OpenAI-compatible server (e.g. **vLLM**) flagged
+`is_local`. Management routes require the instance `admin` role **or** an
+`owner`/`admin` of the acting org. Stored keys are encrypted at rest; reads
+only ever return a masked form, never the plaintext.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/v1/model-providers/presets` | Suggested "add provider" configurations (OpenAI, Anthropic, **vLLM (self-hosted)**, generic OpenAI-compatible) to pre-fill the create form — each carries `adapter`, `is_local`, a `base_url_placeholder`, `requires_api_key`, and help text. Static, credential-free metadata |
+| POST | `/v1/model-providers` | Create a provider — body `{adapter: "openai_compatible"\|"anthropic", name, base_url?, api_key, is_local?}` (`adapter` **422** otherwise; `api_key` required and non-empty even for a keyless vLLM server). `is_local: true` marks self-hosted/local compute. **201** |
+| GET | `/v1/model-providers` | List this org's providers (keys masked) |
+| GET | `/v1/model-providers/{id}` | One provider (masked). **404** if not in the caller's tenant |
+| PATCH | `/v1/model-providers/{id}` | Update `name`/`base_url`/`api_key`/`enabled`/`is_local` (partial) |
+| DELETE | `/v1/model-providers/{id}` | Delete a provider. **204**; **404** if unknown |
+| POST | `/v1/model-providers/{id}/test` | Verify stored credentials with one minimal real completion against the adapter's first catalog model → `{ok, detail}`. Works even on a disabled provider. Rate-limited 5/min **unless** the row is `is_local` |
+| POST | `/v1/model-providers/generate` | Run one completion through an enabled provider — body `{model_id: "remote:<provider_id>:<catalog_id>", prompt, context?, temperature?}`. Any authenticated tenant member (not admin-only). Rate-limited 5/min **unless** the provider is `is_local` (local compute has no per-call cost) |
 
 ## TTS / STT — via the gateway (`/v1/tts`, `/v1/stt`)
 
