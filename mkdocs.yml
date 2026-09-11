@@ -93,6 +93,7 @@ nav:
       - External services: external-services.md
   - Using Minder:
       - Overview: using-minder.md
+      - Ingestion & file formats: ingestion.md
       - Organizations & teams: organizations-teams.md
       - RAG methods: rag-methods.md
       - Knowledge graph: knowledge-graph.md
