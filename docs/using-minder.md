@@ -126,6 +126,21 @@ and a "what's actually active" view:
   **admin** account (not just any login). See [Bundles](bundles.md) for the
   model and the CLI.
 
+### Plugin ratings & reviews
+
+Every plugin card carries a **Ratings & reviews** panel: its live average
+(e.g. `4.2★ (17)`) and the individual reviews, newest first. Opening the panel
+loads the reviews on demand.
+
+Rating a plugin is **install-gated** — you can rate one you've installed (a
+plugin you tried and later uninstalled still counts). Pick 1–5 stars, add an
+optional written review, and submit. You get **one review per plugin**:
+submitting again edits your existing one in place (the panel shows "Editing
+your review" and an **Update review** button), and your own review is
+highlighted in the list. Browsing the aggregate and reviews is open to anyone;
+submitting needs you to be logged in and to have installed the plugin — if you
+haven't, the form stays disabled with an "Install to review" hint.
+
 ## Models & voice
 
 ### Model Management (`/platform`)
@@ -141,22 +156,47 @@ to any logged-in user; pulling and deleting a model need an admin account.
 ### Cloud Providers (`/platform/providers`)
 
 Connect an external OpenAI-compatible provider (OpenAI, z.ai, OpenRouter,
-Together, Azure OpenAI, …) or Anthropic so its models appear alongside your
-local Ollama models. Admin-only, per-organization, and opt-in — nothing here
-is on by default, and your local setup keeps working exactly as before if you
-never add one.
+Together, Azure OpenAI, …), Anthropic, or a **self-hosted** OpenAI-compatible
+server such as **vLLM**, so its models appear alongside your local Ollama
+models. Admin-only, per-organization, and opt-in — nothing here is on by
+default, and your local setup keeps working exactly as before if you never add
+one.
 
-To connect a provider: give it a name, pick the adapter (OpenAI-compatible or
-Anthropic), optionally set a base URL for a non-default vendor, and paste the
-API key. The key is encrypted at rest and never shown again in full — only a
-masked form (e.g. `sk-...ab12`). You can disable a provider without deleting
-it, or delete it outright; there's no separate "edit" yet, so to change a
-name, base URL, or key, delete and re-add.
+To connect a provider, pick a **provider type** from the dropdown — it
+pre-fills the form for that setup:
 
-!!! warning
-    Once connected, prompts routed to that provider's models leave your
-    machine and are billed by the vendor — the opposite of the local-only
-    default.
+- **OpenAI-compatible** — OpenAI itself, or any other endpoint speaking the
+  same chat-completions API (z.ai, OpenRouter, Together, Azure OpenAI, a
+  self-hosted gateway). Set a base URL for a non-default vendor.
+- **vLLM (self-hosted)** — a vLLM server you run yourself, reached through the
+  same OpenAI-compatible adapter at your own base URL (e.g.
+  `http://<your-vllm-host>:8000/v1`). It's flagged as **local compute**, which
+  exempts it from the cloud rate limit described below.
+- **Anthropic** — Anthropic's hosted Claude models.
+
+Then give it a name, optionally set the base URL, and paste the API key. The
+key is encrypted at rest and never shown again in full — only a masked form
+(e.g. `sk-...ab12`).
+
+!!! note "The API-key field is required even for vLLM"
+    A vLLM server started without `--api-key` accepts any bearer token, so the
+    form pre-fills a `not-required` placeholder and any non-empty value works —
+    but the field itself is still required (paste any placeholder). Minder
+    doesn't special-case an empty key.
+
+Each provider row has a **Test** button that makes one minimal real completion
+call against the provider's first catalog model, so a bad key or an unreachable
+endpoint surfaces here rather than mid-chat. You can also disable a provider
+without deleting it, or delete it outright; there's no separate "edit" yet, so
+to change a name, base URL, or key, delete and re-add.
+
+!!! warning "Hosted vendors leave your machine and are metered — local ones aren't"
+    Once connected, prompts routed to a **hosted** provider's models (OpenAI,
+    Anthropic, …) leave your machine and are billed by the vendor — the
+    opposite of the local-only default. To bound that cost, calls to a hosted
+    provider's models (both inference and the **Test** button) are rate-limited
+    to 5/min. A provider marked **local** (a vLLM row) is your own compute with
+    no per-call cost, so it is exempt from that limit.
 
 ### Voice (`/platform/voice`)
 
