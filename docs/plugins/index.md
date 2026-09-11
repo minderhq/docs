@@ -23,6 +23,12 @@ The technical layer stays "AI tools" (the function-calling schema); **"Talent"**
 is the product name for a sellable one. See the
 [authoring guide](authoring.md#extension-points-class-attributes) for `AI_TOOLS`.
 
+A third, newer shape is a **connector** (`category: "connector"`): it pulls
+content from an external source and ingests it into a knowledge base through the
+regular RAG upload path. The first is the public-web
+[`webcrawl`](https://github.com/minderhq/plugins/tree/main/webcrawl) plugin —
+see [Ingestion & file formats](../ingestion.md#connectors-crawl-a-source).
+
 ## The three repos
 
 | Repo | What it's for |
