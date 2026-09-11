@@ -125,6 +125,68 @@ flow**:
    is atomic — the membership insert and the status update commit in one
    transaction.
 
+## Data export & import (self-service)
+
+An org's own **`owner`/`admin`** (or an instance/platform admin) can export and
+re-import that org's structured data as a single portable JSON bundle, and a
+team's **`team_admin`** can do the same for the team's own subset. The bundle
+downloads as an attachment (`minder-export-<slug>.json` /
+`minder-team-export-<team>.json`); import it back into the **same** org/team, or
+into a fresh one on **another instance** — the migration case.
+
+Every export is filtered to the acting org/team and every imported row is
+stamped with the *target* tenant, so a caller can only ever move **their own**
+data — an admin of one org can't aim an export or import at another.
+
+**What an org bundle contains**
+
+- Organization metadata (name, slug, description).
+- The **member list**, referenced by email (a stable cross-instance identity,
+  not the source instance's numeric user ids).
+- **Knowledge-base metadata** and **pipelines**.
+- The org-**global** plugin config (per-user config overrides are excluded).
+
+A **team** bundle is narrower: team metadata, the team roster, and only the
+**team-shared** (`visibility: team`) knowledge bases and pipelines. Private and
+personally-shared KBs (their owners' data, not the team's) and org-global plugin
+config are deliberately out of scope for a team export.
+
+!!! warning "Metadata only — document and vector payloads are not included yet"
+    This first slice moves **structured metadata only**. A knowledge base's
+    actual **document blobs and vector embeddings are not exported** — imported
+    KBs arrive **empty**, and you re-ingest their documents on the target. The
+    bundle records this (`notes.documents_excluded`). Streaming large KB
+    payloads is a background-job feature planned as follow-up work, not part of
+    this synchronous export.
+
+**Conflict handling on import.** Importing into an org/team that already holds
+colliding ids or names is resolved by a `policy` you choose — all three are
+**non-destructive** (nothing existing is ever overwritten):
+
+| Policy | Behaviour |
+|--------|-----------|
+| `skip` (default) | Keep the existing rows; drop the colliding incoming ones |
+| `rename` | Import each collision as a **fresh copy** — a new id and a de-duplicated name (`… (imported)`), with pipeline→KB references re-pointed at the re-keyed KBs |
+| `fail` | Abort the whole import if anything collides (all-or-nothing) |
+
+A destructive `overwrite`/`merge` is intentionally **not** offered. The import
+returns a report of what was written plus every conflict it resolved
+(skipped / renamed / unresolved).
+
+!!! note "Imported members never keep an elevated role"
+    Members in a bundle are always added as plain `member` (org) / `member`
+    (team), **never** at a claimed `owner`/`admin`/`team_admin` — otherwise a
+    crafted bundle could mint privileged members, bypassing the normal
+    add-member guards. Restore any elevated roles afterwards through the usual
+    member-management flow. An email with no matching user on the target
+    instance can't be provisioned and is reported as unresolved rather than
+    invented.
+
+These run through the gateway API (`/v1/organizations/{id}/export|import`,
+`/v1/teams/{id}/export|import`) — see the [API reference](api-reference.md) for
+the exact routes, bodies, and status codes. Every export/import is recorded in
+the [Audit Log](using-minder.md#teams-organizations).
+
 ## Partial RBAC — read this first
 
 !!! danger "Role enforcement is partial"
