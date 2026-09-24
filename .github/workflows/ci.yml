@@ -38,24 +38,22 @@ jobs:
         if: github.event_name == 'push'
         run: python3 --version
 
-      - uses: actions/setup-python@v5
-        if: github.event_name != 'push'
+      - name: Set up uv
+        # SHA-pinned (org convention since the TruffleHog CVE-2026-33634
+        # incident). Pull requests pin 3.12 via UV_PYTHON (uv fetches a managed
+        # build); push passes none, so uv uses the runner's python3.
+        # activate-environment creates a venv (outside the checkout, so it never
+        # ends up in the built site) and puts it on PATH for later steps --
+        # `uv pip install` needs a venv rather than the system interpreter.
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
-          python-version: "3.12"
-          cache: pip
+          python-version: ${{ github.event_name != 'push' && '3.12' || '' }}
+          activate-environment: true
+          venv-path: ${{ runner.temp }}/venv
+          enable-cache: true
+          cache-dependency-glob: requirements*.txt
 
-      - name: Create isolated virtualenv
-        # Self-hosted runner registrations are shared, persistent boxes -- an
-        # unscoped `pip install` would mutate system-wide packages another
-        # concurrent job could read mid-install, and Debian 13 also blocks a
-        # bare system-wide `pip install` via PEP 668
-        # (externally-managed-environment) without a venv.
-        if: github.event_name == 'push'
-        run: |
-          python3 -m venv "$RUNNER_TEMP/venv"
-          echo "$RUNNER_TEMP/venv/bin" >> "$GITHUB_PATH"
-
-      - run: pip install -r requirements.txt
+      - run: uv pip install -r requirements.txt
       - run: mkdocs build --strict
       - uses: actions/upload-pages-artifact@v3
         with:
