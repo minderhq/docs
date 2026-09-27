@@ -125,6 +125,30 @@ flow**:
    is atomic — the membership insert and the status update commit in one
    transaction.
 
+## Deleting an organization
+
+!!! danger "Deletion is irreversible"
+    Deleting an organization has **no grace period and no undo**. The
+    organization, its members, teams, invites and public chat endpoints are
+    removed right away. A background job then deletes the org's data from every
+    other service: knowledge bases, documents and their vectors, pipelines,
+    plugin configuration, and the org's knowledge-graph data. If you might need
+    any of it later, [export the org](#data-export-import-self-service) first,
+    and remember that the export leaves out document and vector payloads.
+
+Deletion takes two safeguards that apply to everyone, including instance
+admins:
+
+- The request must pass `confirm=<organization slug>`, matching the org's slug
+  exactly. Without it the call returns **`400`** and nothing is deleted.
+- The **`default`** organization can never be deleted (**`409`**).
+
+A successful delete returns **`202`** with the id and status of its purge job.
+The response also includes a `not_yet_purged` list naming any data store that
+deletion doesn't clean up yet, so you know what (if anything) is left behind.
+By default, child organizations are detached to top level;
+`reparent_children_to=<org id>` moves them under another org instead.
+
 ## Data export & import (self-service)
 
 An org's own **`owner`/`admin`** (or an instance/platform admin) can export and
