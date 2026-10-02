@@ -1,0 +1,5 @@
+# Public-hygiene allowlist -- see minderhq/.github's public-hygiene.yml.
+# One entry per line: <python regex searched against "path:line">  # <reason>
+# Only harmless hits belong here; private links/refs get rewritten instead.
+
+^docs/self-hosting\.md:git clone https://github\.com/minderhq/minder\.git$ # licensed self-host install step; the page states it needs licensed access to the private core repo
