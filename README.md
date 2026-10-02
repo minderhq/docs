@@ -1,6 +1,6 @@
 # Minder docs
 
-The documentation site for [Minder](https://github.com/minderhq/minder), built
+The documentation site for [Minder](https://minderhq.github.io/www/), built
 with [MkDocs Material](https://squidfunk.github.io/mkdocs-material/).
 
 ```bash

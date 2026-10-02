@@ -33,4 +33,4 @@ client is already pulled in — is planned but not yet wired).
 ## Governance
 
 Follow the repo conventions (Conventional-Commits PR titles, `component:*` labels):
-see [issue-and-pr-conventions](https://github.com/minderhq/minder/blob/main/docs/development/issue-and-pr-conventions.md).
+see the [org contributing guide](https://github.com/minderhq/.github/blob/main/CONTRIBUTING.md).
