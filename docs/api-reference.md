@@ -61,6 +61,28 @@ The interactive `/docs` page for each service is the **authoritative,
 always-current** source for request/response schemas. The tables below enumerate
 every route as wired in code; for exact field-level payloads use `/docs`.
 
+### Published API Gateway spec
+
+The API Gateway's OpenAPI schema is also published with these docs, so you can
+read the contract or generate a client without running Minder:
+
+- [`api-gateway.json`](api/openapi/api-gateway.json) — OpenAPI 3.1, the gateway's
+  public HTTP surface (paths, methods, parameters, request/response schemas).
+- Raw URL, for tooling:
+  `https://raw.githubusercontent.com/minderhq/docs/main/docs/api/openapi/api-gateway.json`
+
+It is a snapshot of the gateway's `/openapi.json`, with the free-text endpoint and
+model descriptions left out. It is updated when the gateway's API changes.
+Minder's web client and CLI check their API calls against it in CI, so a call to a
+route the gateway doesn't serve fails their builds. Example: generate TypeScript
+types with [openapi-typescript](https://openapi-ts.dev/):
+
+```bash
+npx openapi-typescript \
+  https://raw.githubusercontent.com/minderhq/docs/main/docs/api/openapi/api-gateway.json \
+  -o api-types.ts
+```
+
 ## API Gateway — `http://localhost:8000`
 
 Central entry point: authentication, rate limiting, and request proxying (the
