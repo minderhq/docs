@@ -288,6 +288,10 @@ a hardened, public-facing deployment:
 - [ ] Configure Alertmanager receivers (email / Slack / PagerDuty) — these are
       placeholders by default.
 - [ ] Establish and test a backup retention policy with an off-device copy.
+- [ ] If users should reset their own passwords, enable
+      [transactional email](email.md): an SMTP relay, SPF/DKIM/DMARC on the
+      sender domain, `MINDER_CLIENT_BASE_URL` set to the public client URL, and
+      a passing `bash setup.sh email send-test`.
 - [ ] Review resource limits for expected load.
 
 ### Known limitations (do not assume these exist)
@@ -311,6 +315,7 @@ a hardened, public-facing deployment:
 - [Self-hosting](self-hosting.md) — first-time install and capability bundles.
 - [AI setup](ai-setup.md) — inference modes and models.
 - [Authentication](authentication.md) — SSO, JWTs, roles, Traefik/Authelia.
+- [Transactional email](email.md) — SMTP, sender DNS, password-reset email.
 - [External services](external-services.md) — managed data backends.
 - [Remote access](remote-access.md) — reaching an instance beyond the LAN.
 - [Troubleshooting](troubleshooting.md) — diagnostics and common fixes.

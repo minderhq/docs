@@ -196,6 +196,9 @@ groups:
 
 The shipped rule set also covers latency, Postgres/Redis resource pressure,
 plugin health, RAG document-failure rate, and model-registration coverage.
+An `email` group (outbox lag, dead letters, send-failure ratio) is described in
+[Transactional email](email.md#alerts-and-metrics). Make sure your Prometheus
+loads the shipped rules file; that page shows how to check.
 
 ### Alertmanager
 
@@ -272,3 +275,4 @@ Platform Admin through platform-ops (`GET /v1/containers/{name}/logs`).
 - [Using Minder](using-minder.md) — the in-browser platform **Status** page
 - [AI setup](ai-setup.md) — inference and model configuration
 - [Troubleshooting](troubleshooting.md) — service health and healthcheck notes
+- [Transactional email](email.md) — the `/health` email object and email alerts

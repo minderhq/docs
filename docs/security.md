@@ -334,6 +334,9 @@ forward-looking, not built in:
 - [ ] Add firewall rules; remember host ports are loopback-bound, so protect
       access to the box itself.
 - [ ] Establish a credential-rotation cadence.
+- [ ] If you enable [transactional email](email.md), keep `SMTP_PASSWORD` in
+      `.env` only, use `starttls` or `tls` (not `none`), and publish
+      SPF/DKIM/DMARC for the sender domain.
 - [ ] Add alerting on failed authentication attempts and anomalous access (see
       [Monitoring](monitoring.md)).
 - [ ] Keep Traefik and the service images updated (see [Upgrading](upgrades.md)).

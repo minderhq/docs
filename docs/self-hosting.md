@@ -77,6 +77,10 @@ Everything that isn't chat has a modern control-plane UI (the `minder-client`
 SPA) — see [Using Minder](using-minder.md) for a tour; chat itself is
 OpenWebUI. Extend the platform with [plugins](plugins/index.md).
 
+Email is off by default. To enable self-service password reset and security
+notices, configure an SMTP relay as described in
+[Transactional email](email.md).
+
 !!! note
     Deeper operations, architecture, and hardening guides ship with the licensed
     core; the plugin-ecosystem docs on this site are the openly available subset.
