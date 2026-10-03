@@ -65,8 +65,10 @@ JWT_SECRET=CHANGEME_JWT_SECRET_MINIMUM_64_CHARS_RECOMMENDED
 INFLUXDB_TOKEN=CHANGEME_INFLUXDB_SECRET_40_CHARS
 ```
 
-Only set your own value if you want a specific one — anything you put in `.env`
-wins over the auto-generated default. Authelia's `admin` password follows the
+Only set your own value if you want a specific one. A value you supply must have
+the same shape as a generated one (lowercase hex, exact length; see the table
+below). Otherwise `setup.sh` treats it as a placeholder and replaces it. The one
+exception is the Authelia admin password, which may be any value you choose. Authelia's `admin` password follows the
 same self-heal: it's generated per deployment, argon2id-hashed, and the plaintext
 is printed to the terminal **once** when first generated — record it then (see
 [Authentication](authentication.md)).
@@ -76,17 +78,57 @@ is printed to the terminal **once** when first generated — record it then (see
     Use distinct credentials per deployment — each machine has its own root
     `.env`.
 
-### Recommended secret strength
+### Generated secrets
 
-| Secret | Minimum | Notes |
-|--------|---------|-------|
-| `POSTGRES_PASSWORD` | 32 chars | Mixed case, digits, symbols |
-| `REDIS_PASSWORD` | 32 chars | Mixed case, digits, symbols |
-| `JWT_SECRET` | 64 chars (128+ recommended) | Cryptographically random |
-| `INFLUXDB_TOKEN` | 32–40 chars | Alphanumeric + symbols |
+`setup.sh` generates and manages every secret below. "Length" is the length of
+the generated value: lowercase hex, two characters per random byte.
 
-The auto-generated values already meet these; the table is for when you supply
-your own.
+| Secret | Length | Used for |
+|--------|--------|----------|
+| `POSTGRES_PASSWORD` | 64 hex | PostgreSQL owner role `minder` (migrations, schema) |
+| `DB_APP_PASSWORD` | 64 hex | Non-superuser runtime role `minder_app`. Each service's query pool connects as it, which is what makes row-level security apply |
+| `DB_PLUGIN_PASSWORD` | 64 hex | Least-privilege role `minder_plugins` that in-process plugins connect as. It is confined to the `plugin_data` schema and has no access to platform tables |
+| `REDIS_PASSWORD` | 64 hex | Redis |
+| `RABBITMQ_PASSWORD` | 64 hex | RabbitMQ |
+| `MINIO_ROOT_PASSWORD` | 64 hex | MinIO root user |
+| `JWT_SECRET` | 128 hex | Signs Minder JWTs |
+| `MODEL_PROVIDER_VAULT_SECRET` | 128 hex | Encrypts stored cloud-provider API keys. **Never clear it**, see [below](#vault-and-license-secrets-never-clear) |
+| `PLUGIN_SECRETS_VAULT_SECRET` | 128 hex | Encrypts per-plugin connector secrets. **Never clear it** |
+| `LICENSE_KEY_VAULT_SECRET` | 128 hex | Encrypts license keys at rest. **Never clear it** |
+| `LICENSE_KEY_HASH_SECRET` | 128 hex | Keys the license-key lookup hash. **Must never change** |
+| `NEO4J_AUTH` | `neo4j/` + 32 hex | Neo4j |
+| `INFLUXDB_TOKEN` | 80 hex | InfluxDB |
+| `AUTHELIA_STORAGE_ENCRYPTION_KEY` | 64 hex | Encrypts Authelia's own storage. **Never clear it** |
+| `AUTHELIA_SESSION_SECRET`, `AUTHELIA_IDENTITY_VALIDATION_RESET_PASSWORD_JWT_SECRET`, `AUTHELIA_IDENTITY_PROVIDERS_OIDC_HMAC_SECRET` | 64 hex | Authelia sessions, password-reset links, OIDC tokens |
+| `MINDER_OIDC_CLIENT_SECRET` | 64 hex | API Gateway's OIDC client secret with Authelia |
+| `MINDER_AUTHELIA_ADMIN_PASSWORD` | 64 hex (or your own) | Authelia `admin` login, printed once when generated |
+| `GRAFANA_PASSWORD` | 64 hex | Grafana admin |
+| `WEBUI_SECRET_KEY` | 64 hex | Open WebUI session signing |
+| `SERVICE_SYNC_TOKEN` | 64 hex | Internal service-to-service token (plugin AI-tool catalog sync) |
+
+Without `DB_PLUGIN_PASSWORD`, plugins get **no** database handle at all (fail
+closed). They never fall back to the owner credentials, and the plugin registry
+logs an error at startup.
+
+### A new secret appeared after an upgrade
+
+Releases sometimes add a secret to the list above (for example,
+`DB_PLUGIN_PASSWORD`). `setup.sh` fills missing secrets on `install`/`start`.
+To avoid desyncing live services, it **refuses** to generate secrets while the
+stack is running, with one exception: a brand-new secret that its service
+re-applies from `.env` on every boot. `DB_PLUGIN_PASSWORD` is one of these, and
+setup adds it automatically even on a running stack, as long as the key is
+absent from `.env`.
+
+For any other new secret, or if the key is present but empty or a placeholder,
+setup stops with `Refusing to regenerate .env secrets`. Either:
+
+- stop the stack, then start it again (`bash setup.sh stop`, then
+  `bash setup.sh start`), so setup fills the key while nothing is running; or
+- run setup with `MINDER_ALLOW_SECRET_REGEN=1` set. This is an explicit opt-in
+  that lets setup generate secrets on a live stack. Like a normal run, it only
+  fills keys that are missing, empty, placeholders, or malformed. It never
+  touches a well-formed value you already have.
 
 ### File permissions
 
@@ -99,30 +141,90 @@ ls -la .env   # should show -rw------- (owner read/write only)
 ## Credential rotation
 
 Rotate on a regular cadence (quarterly is a reasonable default), and immediately
-on suspected compromise.
+on suspected compromise. Before you start, take a backup (`bash setup.sh backup`).
+Before setup regenerates any secret, it saves the current file as
+`.env.backup-<timestamp>` next to `.env`.
 
-1. **Clear the keys to rotate** in the root `.env` (e.g. `JWT_SECRET=`);
-   `setup.sh` regenerates emptied secret keys on the next start, backing up the
-   file first.
-2. **Apply:**
+!!! danger "Not every secret can be regenerated"
+    Clearing a secret makes `setup.sh` replace it with a **new random value**.
+    That is fine for a password that a service re-reads on start. For a secret
+    that **encrypts or hashes stored data**, it orphans that data permanently:
+
+    | Secret | What breaks if it's regenerated |
+    |--------|---------------------------------|
+    | `MODEL_PROVIDER_VAULT_SECRET` | Stored cloud-provider API keys can no longer be decrypted |
+    | `PLUGIN_SECRETS_VAULT_SECRET` | Stored per-plugin connector secrets can no longer be decrypted |
+    | `LICENSE_KEY_VAULT_SECRET` | Encrypted license keys can no longer be revealed or rotated |
+    | `LICENSE_KEY_HASH_SECRET` | Existing license keys stop validating |
+    | `AUTHELIA_STORAGE_ENCRYPTION_KEY` | Authelia can no longer read its own encrypted storage |
+
+    **Never clear these.** If one was regenerated by mistake, restore the old
+    value from the newest `.env.backup-*` file before any further restart.
+
+### Regenerable secrets
+
+These can be rotated by clearing them and letting setup generate new values:
+
+1. **Clear the keys to rotate** in the root `.env`, for example `JWT_SECRET=`.
+2. **Apply with the stack stopped.** Setup refuses to regenerate secrets while
+   the stack is running.
    ```bash
    bash setup.sh stop
    bash setup.sh start
    ```
-3. **Rotate stateful secrets at the source.** Editing `.env` alone does **not**
-   change a live database's stored password. After changing `POSTGRES_PASSWORD`:
-   ```bash
-   bash setup.sh sync-postgres-password   # ALTER USER so the live DB matches .env
-   ```
+3. **Sync the ones a data store keeps.** Editing `.env` alone does **not** change
+   a password that a data store saved at first initialization:
+
+    | Secret | How the new value takes effect |
+    |--------|--------------------------------|
+    | `JWT_SECRET` | Picked up on restart. All existing tokens become invalid, so users sign in again |
+    | `REDIS_PASSWORD`, `MINIO_ROOT_PASSWORD` | Picked up when the container is recreated on start |
+    | `DB_APP_PASSWORD`, `DB_PLUGIN_PASSWORD` | Picked up on start: the services re-apply the `minder_app` and `minder_plugins` role passwords from `.env` on every boot. No manual step needed |
+    | `POSTGRES_PASSWORD` | Run `bash setup.sh sync-postgres-password` once the stack is up. It runs `ALTER USER minder`, so the live database matches `.env`. It only updates the `minder` owner role; the two roles above sync themselves |
+    | `RABBITMQ_PASSWORD`, `NEO4J_AUTH`, `INFLUXDB_TOKEN`, `GRAFANA_PASSWORD` | Saved in the service's data volume at first initialization. Setup has no sync command for these, so change the password inside the service with its own tooling, then put the same value in `.env`. Don't regenerate them blindly |
+
 4. **Verify:**
    ```bash
    bash setup.sh status
    curl http://localhost:8000/health
    ```
 
-On suspected compromise, stop the stack first (`bash setup.sh stop`), rotate as
-above, restart, and review the gateway access logs
-(`docker logs minder-api-gateway --tail 1000`).
+### Vault and license secrets (never clear)
+
+The services accept `MODEL_PROVIDER_VAULT_SECRET`, `PLUGIN_SECRETS_VAULT_SECRET`
+and `LICENSE_KEY_VAULT_SECRET` as a **comma-separated list**:
+
+- the **first** entry is the primary key, used for all new encryption;
+- **every** entry is tried when decrypting, so data encrypted under an older
+  entry stays readable as long as that entry is still in the list.
+
+You rotate one of these by **prepending** a new value and keeping the old one
+after it (`NEW,OLD`). Never replace the old value or clear the list. Model
+providers have a re-encryption endpoint,
+`POST /v1/model-providers/rotate` (admin or org admin). After the restart, call
+it once per organization to move that organization's stored keys onto the new
+primary. Only remove an old entry after
+everything encrypted with it has been re-encrypted.
+
+!!! warning "Current setup tooling doesn't preserve a multi-entry value"
+    Setup's secret self-heal currently treats a comma-separated vault value as
+    malformed. With the stack running, it refuses to start, and on a stopped
+    stack, `bash setup.sh start` (or a full `restart`) **replaces the whole list
+    with one new random value**, which orphans the encrypted data. The same
+    happens on a running stack if setup runs with `MINDER_ALLOW_SECRET_REGEN=1`. Until setup
+    supports multi-entry vault secrets, **don't rotate these secrets** unless
+    there is a confirmed compromise. If a list was replaced, restore it from the
+    newest `.env.backup-*` file.
+
+`LICENSE_KEY_HASH_SECRET` is a single value with **no** rotation path. Every
+stored license-key lookup hash is keyed with it, so it must stay the same for
+the life of the installation. It is kept separate from `LICENSE_KEY_VAULT_SECRET`
+so that the vault key can rotate without touching the hashes.
+
+### On suspected compromise
+
+Stop the stack first (`bash setup.sh stop`), rotate as above, restart, and
+review the gateway access logs (`docker logs minder-api-gateway --tail 1000`).
 
 ## Secrets management in production (optional)
 

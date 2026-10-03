@@ -37,6 +37,10 @@ flow, verification, rollback, and per-image caveats.
 - [ ] A fresh backup taken: `bash setup.sh backup` (see [Production](production.md#backups)).
 - [ ] The proposed version changes reviewed via the drift report.
 - [ ] Current versions noted so you can roll back.
+- [ ] If the release adds a new secret, you've read
+      [A new secret appeared after an upgrade](security.md#a-new-secret-appeared-after-an-upgrade).
+      Never clear a vault or license secret to "fix" setup. See
+      [Credential rotation](security.md#credential-rotation).
 
 ```bash
 # Report installed vs. pinned vs. latest available (drift report)
