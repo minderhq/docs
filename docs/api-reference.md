@@ -228,9 +228,11 @@ curl -s http://localhost:8000/v1/plugins -H "Authorization: Bearer $TOKEN" | jq 
 
 ## Plugin Registry — `http://localhost:8001`
 
-Plugin registration, discovery, and lifecycle management. Plugins are
-**manifest-based** — there is **no arbitrary code execution** (security by
-design). The registry runs a 60-second health loop, stores service-discovery
+Plugin registration, discovery, and lifecycle management. Manifest plugins are
+declarative and run no plugin code; module (code) plugins are Python that the
+registry runs **in-process** (see the
+[plugin trust model](security.md#plugin-trust-model)).
+The registry runs a 60-second health loop, stores service-discovery
 data in Redis, and auto-syncs with the marketplace.
 
 ### Plugins
@@ -656,8 +658,11 @@ Errors follow the standard FastAPI shape:
 
 ## Plugin system
 
-Plugins are **manifest-based** and support no arbitrary code execution by design.
-New actions must be implemented as fixed handlers in the codebase.
+Plugins are either declarative **manifests** (no plugin code runs) or **module
+plugins**: Python classes the registry imports and runs in-process. Module
+plugins are not sandboxed; they get a least-privilege database role and are
+reviewed before they reach the catalog. See the
+[plugin trust model](security.md#plugin-trust-model).
 
 Lifecycle (as implemented):
 
@@ -684,8 +689,9 @@ plugin-registry enforces it at execution time (a user below that tier gets a 403
 defs; drive the end-to-end loop via `POST /v1/ai/chat/completions` with
 `"minder_tools": true` (see the API Gateway section).
 
-Plugins can write to any storage backend (postgres, qdrant, neo4j, minio,
-influxdb) and publish async events through rabbitmq. See the
+Plugins receive backend handles in their config: `redis`, `influxdb`, and,
+when the plugin role is configured, a `database` handle scoped to the
+`plugin_data` schema (see the [plugin contract](plugins/contract.md)). See the
 [Plugins](plugins/index.md) documentation for how to write and publish one.
 
 ## Monitoring

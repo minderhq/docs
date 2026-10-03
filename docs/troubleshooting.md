@@ -137,8 +137,8 @@ grep NEO4J .env
 
 The first-party module plugins ship with the platform and are loaded from disk on
 startup, so a clean install already lists them — the plugin list should not be
-empty. See [Plugins](plugins/index.md) for the plugin model (manifest-based, with
-no arbitrary code execution).
+empty. See [Plugins](plugins/index.md) for the plugin model, and the
+[plugin trust model](security.md#plugin-trust-model) for how plugins are isolated.
 
 ```bash
 # Registry health and plugin list

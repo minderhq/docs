@@ -58,5 +58,5 @@ enable a plugin whose hard services are missing, and offer to enable its bundles
 
 ## Design
 
-Why this shape scales to thousands of plugin types without arbitrary code — see
+Why this shape scales to thousands of plugin types without plugins shipping their own UI code — see
 [RFC 0001](https://github.com/minderhq/plugin-sdk/blob/main/docs/rfc/0001-extensible-plugin-contract.md).

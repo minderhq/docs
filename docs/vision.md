@@ -23,7 +23,8 @@ Raspberry Pi), a complete AI system that:
 - runs **local LLMs** with no cloud API keys and no data leaving the box by
   default — any remote model provider a user connects is opt-in, per-organization,
   and explicit,
-- is **extended by plugins and tools** without writing or trusting arbitrary code,
+- is **extended by plugins and tools**: declarative manifests where they suffice,
+  reviewed code plugins with least-privilege credentials where they don't,
 - is **operated from one coherent, modern control-plane UI** — not a pile of raw forms,
 - and is **honest about what it does**: every capability is real, verifiable, and
   observable, or it is clearly marked as not-yet-implemented.
@@ -38,9 +39,12 @@ If a capability can't be run end-to-end and shown working, it isn't done.
 2. **One command to a working system.** `bash setup.sh` provisions the whole
    stack, fills secrets, and self-heals. Capability is toggled by **bundles**, not
    by editing compose files.
-3. **Extensible without arbitrary code execution.** Plugins are **manifest-based**;
-   new actions are fixed, reviewed handlers — never uploaded code. Safety is a
-   design property, not a scanner bolted on afterward.
+3. **Extensible, with an explicit trust model.** Simple plugins are declarative
+   manifests that run no plugin code. Richer plugins are Python that runs
+   in-process, so they are reviewed before they reach the catalog and get
+   least-privilege credentials (their own database schema, no access to platform
+   tables). We say plainly what is and isn't isolated; see the
+   [plugin trust model](security.md#plugin-trust-model).
 4. **Runs on modest hardware.** ARM / Raspberry Pi is a first-class target, not an
    afterthought. Features are chosen and tuned to fit (e.g. Piper for offline TTS,
    optional cross-encoder reranking that degrades gracefully when the ML extras
@@ -68,7 +72,7 @@ over the same documents. See [RAG methods](rag-methods.md).
 
 ### Extensibility — plugins, tools, marketplace
 
-Manifest-based plugins that can write to any backend and register as **AI tools**
+Manifest and Python plugins that collect and store data and register as **AI tools**
 for LLM function-calling, plus a marketplace with a dependency / conflict graph.
 See [Plugins](plugins/index.md).
 
@@ -87,7 +91,7 @@ self-healing provisioning; loud, honest backups. See [Monitoring](monitoring.md)
 ### Security & multi-user
 
 JWT auth, licence fail-closed, Authelia SSO / 2FA enforced at the edge,
-loopback-bound host ports, no-arbitrary-code plugins, and a per-deployment-generated
+loopback-bound host ports, least-privilege plugin database credentials, and a per-deployment-generated
 admin credential rather than a shipped default. Role checks currently cover a
 specific set of admin-only actions; extending them across the rest of the write
 surface, and enabling full browser SSO once a real domain and TLS exist, is
