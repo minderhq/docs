@@ -55,7 +55,7 @@ else:
 ```
 
 The `redis` and `influxdb` handles still carry the platform's shared credentials;
-see [Security](../security.md).
+see the [plugin trust model](../security.md#plugin-trust-model).
 
 ## Config: JSON Schema + UI Schema
 
