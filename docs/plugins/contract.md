@@ -17,6 +17,46 @@ Returned by `register()`. Fields the registry reads:
 `shutdown` — all `async`. Plus the optional `apply_config(config)`. Duck-typed on
 `register`; inheriting `Plugin` / `PluginBase` is optional.
 
+## Backend config (`self.config`)
+
+The registry constructs each module plugin with a dict of backend handles,
+`plugin_class(config)`. `PluginBase` stores it as `self.config`. Read connection
+details from it instead of hard-wiring hosts, and don't read `POSTGRES_*` or other
+platform credentials from the environment.
+
+| Key | Present | Shape |
+|-----|---------|-------|
+| `redis` | always | `{host, port, password, db}` |
+| `influxdb` | always | `{enabled, host, port, token, org, bucket}` |
+| `database` | only when the operator has configured the plugin database role | `{host, port, user: "minder_plugins", password, database, schema: "plugin_data"}` |
+
+There is **no** `postgres` or `qdrant` key; `config["postgres"]` raises `KeyError`.
+
+`database` is a **least-privilege** Postgres handle, not the platform's own
+credentials:
+
+- The `minder_plugins` role can only use its own `plugin_data` schema and has
+  **no access to the platform's tables**.
+- Its `search_path` is pinned to `plugin_data`, so an unqualified `CREATE TABLE`
+  lands there, owned by the plugin. `schema` is passed too, so you can
+  schema-qualify your own DDL.
+- **The key may be missing.** If `DB_PLUGIN_PASSWORD` isn't set, no `database`
+  key is injected at all (the registry fails closed and never falls back to the
+  owner credentials). Use `self.config.get("database")` and degrade gracefully,
+  for example by disabling the feature or reporting it from `health_check()`.
+
+```python
+db = self.config.get("database")
+if db is None:
+    self.db_enabled = False      # no plugin database role on this instance
+else:
+    dsn = (f"postgresql://{db['user']}:{db['password']}"
+           f"@{db['host']}:{db['port']}/{db['database']}")
+```
+
+The `redis` and `influxdb` handles still carry the platform's shared credentials;
+see [Security](../security.md).
+
 ## Config: JSON Schema + UI Schema
 
 The simple `CONFIG_SCHEMA` list is compiled to standard **JSON Schema** — so
@@ -58,5 +98,5 @@ enable a plugin whose hard services are missing, and offer to enable its bundles
 
 ## Design
 
-Why this shape scales to thousands of plugin types without arbitrary code — see
+Why this shape scales to thousands of plugin types without plugins shipping their own UI code — see
 [RFC 0001](https://github.com/minderhq/plugin-sdk/blob/main/docs/rfc/0001-extensible-plugin-contract.md).

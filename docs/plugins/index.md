@@ -1,9 +1,12 @@
 # Plugins
 
-Minder is extended by **plugins** — and they run **no arbitrary uploaded code**.
-A plugin is a declarative handler the platform drives: it can pull data, expose
-AI tools for function-calling, ingest webhooks, and more. Safety is a design
-property, not a scanner bolted on afterward.
+Minder is extended by **plugins**. A plugin can pull data, expose AI tools for
+function-calling, ingest webhooks, and more. Most are Python **module plugins**
+that the plugin registry runs in-process; simple webhook ingestion can be a
+declarative [manifest](manifest.md) instead, which runs no plugin code. Module
+plugins are reviewed before they reach the catalog and get a least-privilege
+database role. They are not sandboxed; see the
+[plugin trust model](../security.md#plugin-trust-model).
 
 ## Data sources & Talents
 

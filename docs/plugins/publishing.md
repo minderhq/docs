@@ -23,11 +23,14 @@ a top-level `<name>/__init__.py` package that imports from `minder_plugin_sdk`.
 ## How it reaches a running Minder
 
 The plugin-registry **discovers and loads module plugins on startup** and lists
-them at `/v1/plugins`. By design nothing runs arbitrary code — a plugin is fixed
-handlers (or a declarative [manifest](manifest.md)), never uploaded code — so
-loading a catalog plugin is safe. First-party plugins ship inside the Minder
-core; wiring a running instance to also load this public catalog is a
-per-deployment integration step (git-submodule vendoring — the way the web
+them at `/v1/plugins`. A module plugin is Python that runs **in-process** in the
+registry, so it is arbitrary code and isn't sandboxed. That's why catalog plugins
+are reviewed and validated before they merge, and why plugins get a
+least-privilege database role (their own `plugin_data` schema, no access to
+platform tables). A declarative [manifest](manifest.md) plugin runs no plugin
+code. See the [plugin trust model](../security.md#plugin-trust-model).
+First-party plugins ship inside the Minder core; wiring a running instance to
+also load this public catalog is a per-deployment integration step (git-submodule vendoring — the way the web
 client is already pulled in — is planned but not yet wired).
 
 ## Governance

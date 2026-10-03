@@ -34,11 +34,51 @@ a deployment needs. For the login/SSO/JWT model in detail, see
 - **Least-privilege Docker access** — services that need the Docker Engine API
   (bundle enable/disable, container logs) go through a proxy with an explicit
   allowlist of paths and methods, never a raw `docker.sock` mount.
-- **No arbitrary code execution in plugins** — plugins are manifest-based, fixed,
-  reviewed handlers. Safety is a design property, not a scanner bolted on after.
+- **Least-privilege plugin database role** — plugins get their own Postgres
+  role confined to a `plugin_data` schema, with no access to the platform's
+  tables. See [Plugin trust model](#plugin-trust-model) below for what that does
+  and doesn't cover.
+
+### Plugin trust model
+
+Plugins come in two kinds, and they are trusted differently:
+
+- **Manifest plugins** are declarative YAML that supplies parameters only (for
+  example webhook → store-vector). No plugin code runs. The platform executes its
+  own built-in trigger and action for them. See [Manifest plugins](plugins/manifest.md).
+- **Module (code) plugins** are Python classes (`register()` / `PluginBase`, the
+  default shape in the plugin template). The plugin registry imports them and
+  runs them **in-process**, in the registry's own Python process. This is
+  arbitrary code: a module plugin has the same reach as the registry process
+  itself (its memory, environment, filesystem and network). It is **not
+  sandboxed**.
+
+What limits a module plugin today:
+
+- **Scoped database credentials.** The `database` handle a plugin receives
+  connects as the `minder_plugins` role. That role can only use its own
+  `plugin_data` schema and has no privilege on the platform's tables. Plugins
+  never get the owner credentials; without `DB_PLUGIN_PASSWORD` they get no
+  database handle at all. This scopes the handle the platform gives a plugin,
+  not the process it runs in.
+- **Shared Redis and InfluxDB credentials.** The `redis` and `influxdb` handles
+  still carry the platform's shared credentials. They are not scoped per plugin
+  yet.
+- **Review before it ships.** Catalog plugins arrive as pull requests to the
+  public [plugins](https://github.com/minderhq/plugins) repo. They are reviewed,
+  and CI runs `minder-plugin validate` and a contract suite on each one.
+  Submitted marketplace listings go through an admin review workflow before
+  they're publicly visible (first-party listings are pre-approved). See [Publishing](plugins/publishing.md).
+
+Treat installing a module plugin like installing any Python package into the
+platform: only install plugins you have reviewed or trust. Stronger isolation for
+code plugins is being worked on and is not shipped.
 
 ### What's *not* in place (don't assume)
 
+- **Plugin sandboxing.** Module plugins run in-process in the plugin registry.
+  The scoped database role limits their database handle, not the process. See
+  [Plugin trust model](#plugin-trust-model).
 - **RBAC is partial.** A user's `role` is checked on a specific set of admin-only
   actions (model pull/delete, bundle enable/disable/reconcile, plugin lifecycle
   and service-registry routes, the marketplace admin endpoints, and admin-only
