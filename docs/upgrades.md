@@ -93,6 +93,12 @@ docker ps --format "table {{.Names}}\t{{.Status}}"
     is expected. Confirm them from their logs, not their health status. See
     [Troubleshooting](troubleshooting.md).
 
+!!! note "\"Platform Admin setup code required\""
+    If `status` prints this, the upgraded install has no Platform Admin yet, so
+    the Users page and cross-tenant administration are unavailable. Claim the
+    role with a one-time setup code, or grant it from the CLI. See
+    [Platform Admin](platform-admin.md#upgraded-install-the-one-time-setup-code).
+
 ## Verification
 
 After any upgrade, confirm the core APIs, monitoring, and data stores are back:
@@ -187,5 +193,7 @@ inference to a larger external host, see [AI setup](ai-setup.md).
 - [Production](production.md) — operational topology, backups, hardening.
 - [PostgreSQL](postgresql.md) — schema migrations and the major-version upgrade.
 - [Self-hosting](self-hosting.md) — first-time install and capability bundles.
+- [Platform Admin](platform-admin.md) — claim Platform Admin with a one-time
+  setup code if the upgraded install has none.
 - [Troubleshooting](troubleshooting.md) — diagnostics and common fixes.
 - [Monitoring](monitoring.md) — health and metrics after an upgrade.
