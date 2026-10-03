@@ -257,7 +257,14 @@ docker stats --no-stream | grep minder
 
 # Tail a service's logs
 docker logs minder-<service> --tail 100 -f
+
+# Every core service's /health in one call, through the gateway
+curl -s http://localhost:8000/v1/status | jq '.services[] | {name, status}'
 ```
+
+`/v1/status` covers all nine core services, including `platform-ops`. The
+in-browser **Status** page uses it, and shows recent container logs to a
+Platform Admin through platform-ops (`GET /v1/containers/{name}/logs`).
 
 ## Related documentation
 

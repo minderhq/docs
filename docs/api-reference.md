@@ -1,6 +1,6 @@
 # API reference
 
-The Minder platform exposes RESTful APIs from **8 core FastAPI microservices**,
+The Minder platform exposes RESTful APIs from **9 core FastAPI microservices**,
 fronted by a reverse proxy (TLS termination and routing). This page enumerates
 every route as wired in each service, grouped by service.
 
@@ -20,7 +20,8 @@ self-hosted deployment. Adjust the host/port for your own deployment.
 | Service | Container | Port | Summary |
 |---------|-----------|------|---------|
 | API Gateway | `minder-api-gateway` | 8000 | JWT+bcrypt auth, Redis rate-limit, httpx proxy to every other core service |
-| Plugin Registry | `minder-plugin-registry` | 8001 | Manifest install, health loop, service discovery, AI-tool aggregation, tool discovery/execution, per-plugin licensing |
+| Plugin Registry | `minder-plugin-registry` | 8001 | Manifest install, health loop, AI-tool aggregation, tool discovery/execution, per-plugin licensing |
+| Platform Ops | `minder-platform-ops` | 8010 | Operational control plane: service discovery, capability-bundle enable/disable, container logs, backup/restore job queue |
 | Marketplace | `minder-marketplace` | 8002 | Discovery/search/featured, license tiers, dependency graph (Neo4j) |
 | Orchestrator | `minder-orchestrator` | 8003 | AI-agent orchestration: OpenWebUI tool-server discovery/execution, chat completions with a multi-turn tool loop |
 | RAG Pipeline | `minder-rag-pipeline` | 8004 | Knowledge bases, doc ingest, Qdrant vectors; Standard/Conversational/HyDE/Self-RAG/auto/corrective/RAPTOR RAG via the query `method` field, adaptive `rerank`/`compress` flags, and `hybrid`/`parent_context` retrieval strategies (see `GET /capabilities`) |
@@ -38,12 +39,19 @@ marketplace catalog, and model-management/AI-tools endpoints below.
 
 - `ANY` = the route accepts `GET, POST, PUT, DELETE, PATCH`.
 - `{path:path}` = a catch-all path segment (everything after the prefix is forwarded verbatim).
-- Ports are the host-published ports; internally each service also sits behind the reverse proxy.
+- Ports are each service's own listening port. By default only the API Gateway
+  (`8000`) and the web client (`8009`) publish a host port, both on `127.0.0.1`.
+  Every other core API is reached over the internal service network, and from
+  outside only **through the gateway** (auth, rate limits). For debugging a
+  service directly, set `MINDER_DEV_PORTS=1` in `.env` and run
+  `bash setup.sh restart`: that also publishes the internal APIs' ports on
+  `127.0.0.1`. The `http://localhost:<port>` headings below assume that.
 - **`GET /health`** returns `200` (`healthy`/`degraded`) when the service is serviceable and **`503`** (`unhealthy`) when a *critical* dependency (its Postgres/Redis/Qdrant/Neo4j/Ollama) is unreachable. Each body carries a `status` field and a per-dependency `checks` map plus service-specific fields.
 
 ## Interactive documentation
 
-Every FastAPI service serves Swagger UI, ReDoc, and the raw OpenAPI spec on its own port:
+Every FastAPI service serves Swagger UI, ReDoc, and the raw OpenAPI spec on its own port
+(only the gateway's is on the host by default; the others need `MINDER_DEV_PORTS=1`):
 
 ```
 http://localhost:<port>/docs          # Swagger UI (interactive)
@@ -53,7 +61,7 @@ http://localhost:<port>/openapi.json  # OpenAPI schema
 
 Ports: `8000` (gateway), `8001` (plugin-registry), `8002` (marketplace),
 `8003` (orchestrator), `8004` (rag-pipeline), `8005` (model-management),
-`8008` (graph-rag). The `tts-stt` service is internal-only by default (no host
+`8008` (graph-rag), `8010` (platform-ops). The `tts-stt` service is internal-only by default (no host
 port), so its `/docs` is reachable from inside the service network / via the
 reverse proxy rather than at `localhost:8006`.
 
@@ -178,8 +186,10 @@ can legitimately run well past 30s.
 |--------|------|--------|
 | GET | `/v1/plugins` | plugin-registry (list) |
 | ANY | `/v1/plugins/{path:path}` | plugin-registry |
-| GET | `/v1/bundles` | plugin-registry (list, mirrors the `/v1/plugins` GET/wildcard split) |
-| GET/POST | `/v1/bundles/{path:path}` | plugin-registry's bundle control-plane (enable/disable/reconcile) — writes require JWT |
+| GET | `/v1/bundles` | platform-ops (list, mirrors the `/v1/plugins` GET/wildcard split) |
+| GET/POST | `/v1/bundles/{path:path}` | platform-ops's bundle control-plane (readiness, enable/disable/reconcile) — writes require JWT |
+| GET | `/v1/containers/{path:path}` | platform-ops container logs (Platform Admin only, enforced in platform-ops) |
+| GET/POST | `/v1/backups`, `/v1/backups/{path:path}` | platform-ops backup/restore job queue (admin-only in platform-ops; writes also require JWT at the gateway) |
 | ANY | `/v1/rag/{path:path}` | rag-pipeline (prefix maps to the service root) — **long-timeout** |
 | ANY | `/v1/conversations/{path:path}` | rag-pipeline conversation-history bridge — a top-level prefix (not nested under `/v1/rag/*` or a pipeline id) since a conversation isn't pipeline-scoped. `GET /v1/conversations/mine` lists the caller's own conversations |
 | GET/POST | `/v1/models` | model-management `/models` (list / pull) — **long-timeout** |
@@ -199,8 +209,8 @@ can legitimately run well past 30s.
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/health` | Gateway health + downstream dependency status (no auth) |
-| GET | `/v1/status` | Fans out to all 8 core services' own `/health` over the internal service network (no single service's `/health` is reachable from a browser directly). Never fails even if every downstream is unreachable — each entry reports `reachable: false` instead |
-| GET | `/v1/containers/{name}/logs` | Proxies to Plugin Registry's `GET /v1/containers/{name}/logs?tail=` (JWT-gated there, not here — see Plugin Registry's Containers section below) |
+| GET | `/v1/status` | Fans out to all 9 core services' own `/health` over the internal service network (no single service's `/health` is reachable from a browser directly). Never fails even if every downstream is unreachable — each entry reports `reachable: false` instead |
+| GET | `/v1/containers/{name}/logs` | Proxies to Platform Ops's `GET /v1/containers/{name}/logs?tail=` (Platform Admin only, enforced there, not here — see Platform Ops's Containers section below) |
 | GET | `/metrics` | Prometheus metrics |
 
 **Authentication:** JWT (HS256) with bcrypt-hashed credentials. Send
@@ -230,8 +240,8 @@ curl -s http://localhost:8000/v1/plugins -H "Authorization: Bearer $TOKEN" | jq 
 
 Plugin registration, discovery, and lifecycle management. Plugins are
 **manifest-based** — there is **no arbitrary code execution** (security by
-design). The registry runs a 60-second health loop, stores service-discovery
-data in Redis, and auto-syncs with the marketplace.
+design). The registry runs a 60-second health loop and auto-syncs with the
+marketplace.
 
 ### Plugins
 
@@ -259,55 +269,6 @@ data in Redis, and auto-syncs with the marketplace.
 | POST | `/v1/plugins/reload-webhook` | Re-register a plugin's webhook routes (admin-only) |
 | POST | `/v1/force-webhooks` | Force re-registration of all webhook routes (JWT-gated; unversioned `/force-webhooks` kept as a deprecated alias) |
 | POST | `/webhook/{path:path}` | Generic inbound webhook / event trigger |
-
-### Service discovery
-
-| Method | Path | Description |
-|--------|------|-------------|
-| POST | `/v1/services/register` | Register a microservice for discovery (admin JWT or service token) |
-| GET | `/v1/services` | List registered services |
-| GET | `/v1/services/{service_name}` | Service details |
-| GET | `/v1/services/{service_name}/health` | Check a registered service's health (admin JWT or service token) |
-| DELETE | `/v1/services/{service_name}` | Unregister a service (admin JWT or service token) |
-| GET | `/v1/proxy` | List services that can be proxied |
-| ANY | `/v1/proxy/{service_name}/{path:path}` | Dynamic proxy to a registered service (admin JWT or service token) |
-
-### Bundles
-
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/v1/bundles` | The bundle model: each capability bundle, whether it's enabled, its claimed services (each with active/orphaned status and its pinned Docker `image` — `null` for a locally-built service), and the platform-wide orphaned-services list. `503` if the compose file isn't mounted |
-| POST | `/v1/bundles/{name}/enable` | Enable a bundle (admin-gated). Persists intent and starts already-materialised claimed containers via a least-privilege docker-socket proxy — it cannot *create* new containers, so a never-materialised service comes back as `pending_create` until the next host converge |
-| POST | `/v1/bundles/{name}/disable` | Disable a bundle (admin-gated); stops its claimed containers, same persistence model as enable |
-| POST | `/v1/bundles/reconcile` | Re-apply the persisted enable-state to running containers (admin-gated) — start/stop drift correction without changing intent |
-
-### Containers
-
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/v1/containers/{name}/logs` | Recent stdout/stderr for one of the 8 core services (`?tail=`, default 200, max 2000). **Platform Admin only** (log output carries every tenant's data and can hold stack traces or an accidentally-logged secret). `name` is checked against a fixed allowlist before building a container name. `404` unknown service or container not running, `503` if the socket proxy itself is unreachable |
-
-Fetched over the same least-privilege docker-socket proxy `/v1/bundles` uses,
-extended with a GET-only, no-exec/attach/create logs rule. Docker's logs API
-returns a multiplexed stream whenever the container isn't a tty (which every
-Minder container is) — this endpoint demuxes it server-side so the response is
-plain `{stream, text}` lines, not raw bytes.
-
-### Backups (`/v1/backups`)
-
-A job-queue front end for the host-level backup/restore tooling — **not** a
-Docker orchestrator (this router never talks to Docker directly). It reads/writes
-small JSON job files in a bind-mounted directory; a host-side cron job does the
-real work. All endpoints are admin-only. Reachable through the gateway
-(`GET/POST /v1/backups`, `GET/POST /v1/backups/{path:path}`).
-
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/v1/backups` | List existing backup archives |
-| POST | `/v1/backups` | Enqueue a backup job (**202**, returns the job record) |
-| GET | `/v1/backups/jobs` | List recent backup/restore jobs (most recent 50) |
-| GET | `/v1/backups/jobs/{job_id}` | Get one job's status/output (404 if unknown) |
-| POST | `/v1/backups/{name}/restore` | Enqueue a restore job (**202**). Destructive — beyond admin-only gating, the body must echo `{"confirm_filename": "<name>"}` exactly matching the archive being restored |
 
 ### Tools (`/v1/tools`)
 
@@ -341,12 +302,82 @@ store stays in the marketplace. Reachable through the gateway
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/health` | Service health + plugin/service counts |
+| GET | `/health` | Service health + loaded-plugin count |
 | GET | `/metrics` | Prometheus metrics |
 
 First-party module plugins ship with the platform and are loaded by the registry
 on startup (see `GET /v1/plugins`). For writing and publishing your own, see the
 [Plugins](plugins/index.md) documentation.
+
+## Platform Ops — `http://localhost:8010`
+
+Minder's operational control plane. It was split out of the Plugin Registry,
+which now keeps only the plugin domain. Platform Ops owns service discovery, the
+capability-[bundle](bundles.md) control plane, the container-log proxy behind the
+**Status** page, and the backup/restore job queue. The route prefixes are
+unchanged from when the Plugin Registry served them, and clients reach them
+through the gateway as before (`/v1/bundles`, `/v1/containers`, `/v1/backups`).
+
+### Service discovery
+
+The gateway does not proxy `/v1/services` or `/v1/proxy`: these are for the
+internal service network (or a `MINDER_DEV_PORTS=1` debug port).
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/v1/services/register` | Register a microservice for discovery (admin JWT or service token) |
+| GET | `/v1/services` | List registered services |
+| GET | `/v1/services/{service_name}` | Service details |
+| GET | `/v1/services/{service_name}/health` | Check a registered service's health (admin JWT or service token) |
+| DELETE | `/v1/services/{service_name}` | Unregister a service (admin JWT or service token) |
+| GET | `/v1/proxy` | List services that can be proxied |
+| ANY | `/v1/proxy/{service_name}/{path:path}` | Dynamic proxy to a registered service (admin JWT or service token) |
+
+### Bundles
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/v1/bundles` | The bundle model: each capability bundle, whether it's enabled, its claimed services (each with active/orphaned status and its pinned Docker `image` — `null` for a locally-built service), and the platform-wide orphaned-services list. `503` if the compose file isn't mounted |
+| GET | `/v1/bundles/ready` | Each bundle's live readiness (its services running and healthy), read on demand from Docker over the socket proxy. A separate signal from `GET /v1/bundles`'s `enabled` (the desired state). Unauthenticated, like the list |
+| POST | `/v1/bundles/{name}/enable` | Enable a bundle (admin-gated). Persists intent and starts already-materialised claimed containers via a least-privilege docker-socket proxy — it cannot *create* new containers, so a never-materialised service comes back as `pending_create` until the next host converge |
+| POST | `/v1/bundles/{name}/disable` | Disable a bundle (admin-gated); stops its claimed containers, same persistence model as enable |
+| POST | `/v1/bundles/reconcile` | Re-apply the persisted enable-state to running containers (admin-gated) — start/stop drift correction without changing intent |
+
+### Containers
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/v1/containers/{name}/logs` | Recent stdout/stderr for one of the 9 core services (`?tail=`, default 200, max 2000). **Platform Admin only** (log output carries every tenant's data and can hold stack traces or an accidentally-logged secret). `name` is checked against a fixed allowlist before building a container name. `404` unknown service or container not running, `503` if the socket proxy itself is unreachable |
+
+Fetched over the same least-privilege docker-socket proxy `/v1/bundles` uses,
+extended with a GET-only, no-exec/attach/create logs rule. Docker's logs API
+returns a multiplexed stream whenever the container isn't a tty (which every
+Minder container is) — this endpoint demuxes it server-side so the response is
+plain `{stream, text}` lines, not raw bytes.
+
+### Backups (`/v1/backups`)
+
+A job-queue front end for the host-level backup/restore tooling — **not** a
+Docker orchestrator (this router never talks to Docker directly). It reads/writes
+small JSON job files in a bind-mounted directory; a host-side cron job does the
+real work. All endpoints are admin-only. Reachable through the gateway
+(`GET/POST /v1/backups`, `GET/POST /v1/backups/{path:path}`). See
+[Backup & restore](backup-restore.md).
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/v1/backups` | List existing backup archives |
+| POST | `/v1/backups` | Enqueue a backup job (**202**, returns the job record) |
+| GET | `/v1/backups/jobs` | List recent backup/restore jobs (most recent 50) |
+| GET | `/v1/backups/jobs/{job_id}` | Get one job's status/output (404 if unknown) |
+| POST | `/v1/backups/{name}/restore` | Enqueue a restore job (**202**). Destructive — beyond admin-only gating, the body must echo `{"confirm_filename": "<name>"}` exactly matching the archive being restored |
+
+### Ops
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/health` | Service health + registered-service count (`503` if Redis is unreachable) |
+| GET | `/metrics` | Prometheus metrics |
 
 ## Marketplace — `http://localhost:8002`
 

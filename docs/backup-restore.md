@@ -130,5 +130,5 @@ fits what you're doing:
 - [Production](production.md) — operational topology and the backups overview.
 - [Upgrading](upgrades.md) — rollback and full restore in the upgrade runbook.
 - [PostgreSQL](postgresql.md) — dump/restore and the major-version upgrade.
-- [API reference](api-reference.md) — the Plugin Registry backups endpoints.
+- [API reference](api-reference.md#backups-v1backups) — the Platform Ops backups endpoints.
 - [Using Minder](using-minder.md) — the Backups page in the control-plane UI.

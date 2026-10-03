@@ -7,9 +7,18 @@ managed through the `bash setup.sh` entrypoint (see
 is the single source of truth — edit it there, then apply with a restart.
 
 !!! note
-    Host ports are loopback-bound by default, so `curl http://localhost:<port>`
-    works on the box itself. The commands below assume you are on the host, in
-    your Minder checkout.
+    Host ports are loopback-bound, so `curl http://localhost:<port>` works on
+    the box itself. By default only the API Gateway (`8000`) and the web client
+    (`8009`) publish one; reach the other core APIs through the gateway, or set
+    `MINDER_DEV_PORTS=1` in `.env` and restart to publish them for debugging.
+    The commands below assume you are on the host, in your Minder checkout.
+
+To see every core service's health at once (including `platform-ops`, which
+serves bundles, container logs and backups), ask the gateway:
+
+```bash
+curl -s http://localhost:8000/v1/status | jq '.services[] | {name, status}'
+```
 
 ## A service won't start
 
@@ -142,8 +151,8 @@ no arbitrary code execution).
 
 ```bash
 # Registry health and plugin list
-curl http://localhost:8001/health
-curl http://localhost:8001/plugins
+docker exec minder-api-gateway curl -s http://minder-plugin-registry:8001/health
+curl http://localhost:8000/v1/plugins
 
 # Registry logs
 docker logs minder-plugin-registry --tail 50
