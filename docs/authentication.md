@@ -155,20 +155,15 @@ bash setup.sh sso-link list                 # list pending approvals
 
 Access tokens are short-lived. To keep a session going, the client renews the
 token with `POST /v1/auth/refresh` until the session reaches its absolute cap.
-Three gateway settings control this:
+Three settings in the root `.env` control this. Compose passes all three to the
+gateway. A setting that is missing from `.env` uses its default, and a change
+takes effect when you restart the stack:
 
 | Setting | Default | Meaning |
 |---------|---------|---------|
 | `JWT_EXPIRATION_MINUTES` | `15` | Lifetime of every access token (`expires_in`). Every route except `/v1/auth/refresh` rejects a token once it expires. |
 | `JWT_REFRESH_GRACE_MINUTES` | `720` (12 h) | How long after expiry a token can still be exchanged at `/v1/auth/refresh`, so a laptop that slept or a throttled background tab can renew instead of being logged out. `0` disables the window. |
 | `JWT_SESSION_MAX_HOURS` | `24` | Absolute session cap, counted from the original sign-in (password or SSO login). Refreshing, switching organization and other token re-issues don't extend it. `0` disables the cap. |
-
-!!! note "Setting the values"
-    `JWT_EXPIRATION_MINUTES` is in `.env` and is passed to the gateway. The
-    stock Compose file doesn't pass `JWT_REFRESH_GRACE_MINUTES` or
-    `JWT_SESSION_MAX_HOURS` to the `api-gateway` service, so the defaults
-    apply. To change them, add the variables to that service's
-    `environment` in your Compose configuration.
 
 ```http
 POST /v1/auth/refresh
