@@ -238,23 +238,43 @@ and `LICENSE_KEY_VAULT_SECRET` as a **comma-separated list**:
 - **every** entry is tried when decrypting, so data encrypted under an older
   entry stays readable as long as that entry is still in the list.
 
-You rotate one of these by **prepending** a new value and keeping the old one
-after it (`NEW,OLD`). Never replace the old value or clear the list. Model
-providers have a re-encryption endpoint,
-`POST /v1/model-providers/rotate` (admin or org admin). After the restart, call
-it once per organization to move that organization's stored keys onto the new
-primary. Only remove an old entry after
-everything encrypted with it has been re-encrypted.
+Each entry has the same shape as a generated value: 128 lowercase hex
+characters (`openssl rand -hex 64`). Setup accepts a valid list as it is and
+never regenerates a vault secret that already has a value, whether the stack is
+running or stopped, and even with `MINDER_ALLOW_SECRET_REGEN=1`. It only fills
+one that is missing, empty or still a placeholder.
 
-!!! warning "Current setup tooling doesn't preserve a multi-entry value"
-    Setup's secret self-heal currently treats a comma-separated vault value as
-    malformed. With the stack running, it refuses to start, and on a stopped
-    stack, `bash setup.sh start` (or a full `restart`) **replaces the whole list
-    with one new random value**, which orphans the encrypted data. The same
-    happens on a running stack if setup runs with `MINDER_ALLOW_SECRET_REGEN=1`. Until setup
-    supports multi-entry vault secrets, **don't rotate these secrets** unless
-    there is a confirmed compromise. If a list was replaced, restore it from the
-    newest `.env.backup-*` file.
+To rotate one of these secrets:
+
+1. **Prepend the new key.** Generate a new value and put it in front of the
+   current one, separated by a comma, in the root `.env`:
+   ```bash
+   MODEL_PROVIDER_VAULT_SECRET=<NEW>,<OLD>
+   ```
+   Never replace the old value or clear the list.
+2. **Restart** so the services load the new list:
+   ```bash
+   bash setup.sh restart
+   ```
+   New data is now encrypted with the new key, and existing data stays readable
+   through the old one.
+3. **Re-encrypt, where an endpoint exists.** Model providers have one:
+   `POST /v1/model-providers/rotate` (admin or org admin). Call it once per
+   organization to move that organization's stored keys onto the new primary.
+   `PLUGIN_SECRETS_VAULT_SECRET` and `LICENSE_KEY_VAULT_SECRET` have no
+   re-encryption endpoint, so keep their old entry in the list.
+4. **Drop the old key only after re-encryption.** Once everything encrypted with
+   the old entry has been re-encrypted, remove it (`<NEW>` alone) and restart
+   again. If you're not sure, leave it in: an extra entry costs nothing, but a
+   missing one makes the data it encrypted unreadable.
+
+!!! warning "Setup stops on a malformed vault value"
+    If a vault secret has a value that isn't a valid list (for example a
+    truncated entry, an uppercase or non-hex character, or a wrong length),
+    setup **refuses to start**. It logs which key is malformed and what it
+    expects, and **writes nothing** to `.env`. It doesn't replace the value,
+    because that would orphan the encrypted data. Fix the value by hand, or
+    restore it from the newest `.env.backup-*` file, then run setup again.
 
 `LICENSE_KEY_HASH_SECRET` is a single value with **no** rotation path. Every
 stored license-key lookup hash is keyed with it, so it must stay the same for
