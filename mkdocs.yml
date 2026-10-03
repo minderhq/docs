@@ -100,6 +100,7 @@ nav:
       - Remote access: remote-access.md
   - Operations:
       - Production: production.md
+      - Transactional email: email.md
       - Platform Admin: platform-admin.md
       - Bundles: bundles.md
       - Upgrading: upgrades.md

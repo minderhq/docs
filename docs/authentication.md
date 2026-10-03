@@ -271,6 +271,23 @@ The org-scoped reset has extra rules:
   would be accepted (`resettable_by_caller`). These flags are hints: the action
   routes check everything again.
 
+### Self-service password reset by email
+
+When [transactional email](email.md) is configured, the sign-in page offers
+**Forgot password?**. `GET /v1/auth/capabilities` reports whether it is
+available (`password_reset_email`). The flow uses two endpoints:
+
+- `POST /v1/auth/password-reset/request` always answers `202` with the same
+  body, so it never reveals whether an account exists.
+- `POST /v1/auth/password-reset/confirm` takes the token from the emailed link
+  and a new password, and answers `204`.
+
+A completed reset revokes every session and does not sign the user in.
+SSO-linked accounts get a notice that points to their identity provider instead
+of a link. With email off, both endpoints return `404`. See
+[Transactional email](email.md#6-turn-on-password-reset) for configuration and
+the security model.
+
 ### Deactivating and reactivating accounts
 
 Deactivation is a soft, reversible removal. The account can no longer sign in
@@ -436,6 +453,7 @@ docker logs minder-traefik --tail 100
 ## Additional resources
 
 - [Self-hosting Minder](self-hosting.md) — stand up an instance first.
+- [Transactional email](email.md) — enable password-reset email and security notices.
 - [Traefik documentation](https://doc.traefik.io/traefik/)
 - [Authelia documentation](https://www.authelia.com/)
 - [JWT best practices (RFC 8725)](https://datatracker.ietf.org/doc/html/rfc8725)

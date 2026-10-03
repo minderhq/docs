@@ -197,3 +197,5 @@ inference to a larger external host, see [AI setup](ai-setup.md).
   setup code if the upgraded install has none.
 - [Troubleshooting](troubleshooting.md) — diagnostics and common fixes.
 - [Monitoring](monitoring.md) — health and metrics after an upgrade.
+- [Transactional email](email.md) — email stays off after an upgrade until you
+  configure it; `.env` changes need the api-gateway container recreated.
