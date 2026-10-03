@@ -8,8 +8,9 @@ a Raspberry Pi) and gives you:
 
 - **RAG + a knowledge graph** over your own documents and data,
 - **local LLMs** via Ollama — no cloud keys, nothing leaves the box by default,
-- an **extensible plugin & tool ecosystem** with *no arbitrary code execution* —
-  plugins are declarative, fixed, reviewed handlers,
+- an **extensible plugin & tool ecosystem**: declarative manifest plugins, and
+  reviewed Python plugins that run with least-privilege database credentials
+  (see the [plugin trust model](security.md#plugin-trust-model)),
 - **one modern control-plane UI** for everything that isn't chat,
 - and **honest, verifiable** capabilities.
 
