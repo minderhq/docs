@@ -200,6 +200,16 @@ bash setup.sh restart traefik
     intended, not an error. Full browser SSO still requires real DNS and valid
     TLS on the deployment (see [Using Minder](using-minder.md)).
 
+## API requests return 401
+
+Access tokens are short-lived (15 minutes by default). A `401` usually means
+the token expired: renew it with `POST /v1/auth/refresh`, or sign in again if
+refresh also returns `401` (the session reached its 24-hour cap, the account
+was deactivated, or its sessions were revoked). A stale token is refused even
+on routes that work without one, so leave the `Authorization` header out to
+make an anonymous request. See
+[Authentication → Token lifetime & sessions](authentication.md#token-lifetime-and-sessions).
+
 ## Slow API responses
 
 ```bash
