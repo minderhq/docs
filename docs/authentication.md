@@ -13,9 +13,9 @@ UIs (Grafana, OpenWebUI, MinIO, Jaeger) directly at the reverse-proxy layer,
 independent of Minder's own login — see [Authelia](#authelia-sso-oidc) below.
 
 !!! note "Self-hosted deployment"
-    This page describes a self-hosted deployment. Some hardening (RBAC across the
-    full write surface, TLS everywhere) is not yet fully applied — see
-    [Roles](#roles-partially-enforced).
+    This page describes a self-hosted deployment. Authorization is checked per
+    route, not uniformly across the whole write surface — see
+    [Roles & permissions](#roles-and-permissions).
 
 ## How browser login works
 
@@ -67,9 +67,11 @@ Authorization: Bearer <access_token>
 
 Click your username (top-right, once logged in) to open **Settings** — it shows
 your username, email, and role as Minder sees them, plus a "Log out" button.
-Because your real account lives in Authelia, actual profile and password changes
+For an account that signs in through Authelia, profile and password changes
 happen there, not in Minder; Settings links straight to Authelia's own portal.
-See [Using Minder](using-minder.md) for the full UI tour.
+A locally-registered account changes its password through Minder instead — see
+[Password management](#password-management). See
+[Using Minder](using-minder.md) for the full UI tour.
 
 ### Local register/login (for scripting and dev)
 
@@ -97,54 +99,201 @@ Content-Type: application/json
 {
   "access_token": "<jwt>",
   "token_type": "bearer",
-  "expires_in": 1800,
-  "user": { "id": 1, "username": "alice", "email": "alice@example.com", "role": "user" }
+  "expires_in": 900,
+  "user": {
+    "id": 1,
+    "username": "alice",
+    "email": "alice@example.com",
+    "role": "user",
+    "created_at": "2026-01-01T00:00:00",
+    "must_change_password": false
+  }
 }
 ```
+
+`expires_in` is in seconds: `JWT_EXPIRATION_MINUTES × 60` (`900` by default).
+`must_change_password` is `true` after an administrator has reset the password
+(see [Password management](#password-management)).
+
+### Token lifetime & sessions {#token-lifetime-and-sessions}
+
+Access tokens are short-lived. To keep a session going, the client renews the
+token with `POST /v1/auth/refresh` until the session reaches its absolute cap.
+Three gateway settings control this:
+
+| Setting | Default | Meaning |
+|---------|---------|---------|
+| `JWT_EXPIRATION_MINUTES` | `15` | Lifetime of every access token (`expires_in`). Every route except `/v1/auth/refresh` rejects a token once it expires. |
+| `JWT_REFRESH_GRACE_MINUTES` | `720` (12 h) | How long after expiry a token can still be exchanged at `/v1/auth/refresh`, so a laptop that slept or a throttled background tab can renew instead of being logged out. `0` disables the window. |
+| `JWT_SESSION_MAX_HOURS` | `24` | Absolute session cap, counted from the original sign-in (password or SSO login). Refreshing, switching organization and other token re-issues don't extend it. `0` disables the cap. |
+
+!!! note "Setting the values"
+    `JWT_EXPIRATION_MINUTES` is in `.env` and is passed to the gateway. The
+    stock Compose file doesn't pass `JWT_REFRESH_GRACE_MINUTES` or
+    `JWT_SESSION_MAX_HOURS` to the `api-gateway` service, so the defaults
+    apply. To change them, add the variables to that service's
+    `environment` in your Compose configuration.
 
 ```http
 POST /v1/auth/refresh
 Authorization: Bearer <access_token>
 ```
 
-!!! note
-    There is no account-level password-change or reset endpoint for
-    locally-registered accounts — only register, login, refresh, and the OIDC
-    login/callback are implemented. If you need password management, log in via
-    Authelia instead; its own portal handles it.
+**Response:** `{ "access_token": "<jwt>", "token_type": "bearer", "expires_in": 900 }`
 
-### Roles (partially enforced)
+What refresh does:
 
-Logging in via Authelia sets your Minder `role` from Authelia's `groups` claim:
-membership in the `admins` group becomes `role: admin`, everyone else gets
-`role: user`. You can see your own role on the Settings page.
+- It accepts a valid token, or one that expired at most
+  `JWT_REFRESH_GRACE_MINUTES` ago. The new token always gets a fresh issue
+  time and a full `JWT_EXPIRATION_MINUTES` lifetime.
+- It re-checks the account against the database and re-derives the claims from
+  current state: instance `role`, `teams`, organization claims and Platform
+  Admin status. A promotion, demotion or team change therefore takes effect on
+  the next refresh, without a new login. An active organization you switched
+  into is kept while you are still an unsuspended member of it.
+- It returns **`401`** and does not issue a token when:
+    - the account is disabled or no longer exists;
+    - the account's sessions were revoked after the token was issued (see
+      below);
+    - the session is older than `JWT_SESSION_MAX_HOURS`
+      (`"Session has expired -- sign in again"`);
+    - the token is a service token or has no subject.
 
-Role checks currently cover a specific set of admin-only actions — a model
-pull/delete, a bundle enable/disable/reconcile, and listing who installed a
-marketplace plugin — plus the organizations/teams/RBAC surface (see
-[Organizations & teams](organizations-teams.md)):
+  In each of these cases the user has to sign in again.
+- It is rate-limited, with **`429`** over the limit: 60 requests per minute per
+  client IP and 10 per minute per account.
 
-- Any authenticated user can create a team (becoming its `team_admin`).
-- Updating or deleting a team, managing its membership, and issuing, listing, or
-  revoking its invites requires that team's own `team_admin` or an instance
-  `admin`.
-- A team can never be left with zero `team_admin`s — demoting or removing the
-  last one is rejected with a `409` unless the caller is an instance admin
-  (deleting the team outright is a separate, allowed path).
-- Instance-level user management (`GET /v1/auth/users`,
-  `PATCH /v1/auth/users/{id}/role`) is instance-admin-only, with **no equivalent
-  last-admin guard**.
+Clients should refresh shortly before `exp` and retry once on a `401`. The web
+client does both automatically.
 
-!!! warning
-    Everywhere else that requires auth still only checks "is there a valid JWT,"
-    not "does this JWT's role allow it." Don't build workflows that assume broader
-    per-role restrictions are enforced than that.
+#### Session revocation
+
+The gateway checks every access token against the account on every request:
+its own routes, and every route it proxies to a backend service. A token is
+refused with **`401`** within a few seconds when the account is deactivated or
+deleted, or when its sessions are revoked. Its refresh is refused too. The
+check is exact: a token issued even a fraction of a second before the
+revocation is refused.
+
+These actions revoke **all** of a user's existing sessions:
+
+| Action | Notes |
+|--------|-------|
+| The user changes their own password | The response carries a replacement token, so only the device that made the change stays signed in. |
+| An administrator resets the user's password | Platform Admin or org-scoped reset; see [Password management](#password-management). |
+| The account is deactivated | Reactivating the account doesn't bring the old tokens back. |
+| Instance role demotion (`admin` → `user`) | Through `PATCH /v1/auth/users/{user_id}/role`, or the role sync on SSO login. A promotion revokes nothing. |
+| Organization role demotion (`owner` → `admin`/`member`, `admin` → `member`) | Also applies when the user is removed from an organization or their membership is suspended. |
+| Platform Admin is revoked | Done with the server CLI (`platform-admin revoke`). |
+
+After a revocation, the next sign-in issues a token with claims taken from the
+current database state.
+
+#### 401 on expired or invalid tokens
+
+If a request carries an `Authorization: Bearer` token that fails verification,
+the gateway answers **`401`** and doesn't forward the request. Failing
+verification means the token is expired, malformed, wrongly signed, or belongs
+to a disabled or revoked session. This also applies to read routes that work
+without a token. To make an anonymous request, leave the `Authorization`
+header out instead of sending a stale token. A request with two
+`Authorization` headers gets **`400`**.
 
 ### JWT secret
 
 Tokens are signed with `JWT_SECRET`, which lives in the root `.env` file. The
 setup CLI auto-generates a strong value if you leave the placeholder in place.
 The same secret must be consistent across services that validate tokens.
+
+## Password management
+
+These endpoints manage the passwords of **locally-registered** accounts. An
+SSO-linked account gets **`409`** from all of them: its password lives in
+Authelia, so change or reset it in the Authelia portal. New passwords must be
+at least 8 characters.
+
+| Endpoint | Who may call it | What it does |
+|----------|-----------------|--------------|
+| `POST /v1/auth/change-password` | Any signed-in user, for their **own** account | Body: `{current_password, new_password}`. Returns `200` with a replacement token, in the same shape as the `/refresh` response; adopt it to stay signed in. Revokes every other session. Returns `400` if `current_password` is wrong or the new password equals the current one. |
+| `POST /v1/auth/users/{user_id}/reset-password` | **Platform Admin** | Reset any user's password across tenants (see below). |
+| `POST /v1/organizations/{org_id}/members/{user_id}/reset-password` | A caller with `org.members.manage` on the organization, or a Platform Admin | Reset the password of an account managed by that organization (see below). |
+
+**Both reset endpoints:**
+
+- Take `{"mode": "set", "new_password": "..."}`, or `{"mode": "generate"}` to
+  have the server create a strong temporary password.
+- Return the temporary password **once**, in that response only
+  (`Cache-Control: no-store`). It is never stored in plaintext or logged.
+- Set `must_change_password` on the account and revoke its sessions.
+- Can't be used on your own account (`409`); use
+  `POST /v1/auth/change-password` instead.
+
+The org-scoped reset has extra rules:
+
+- It only works on an account the organization **manages**: one that belongs
+  to that organization's tree and no other.
+- Only an owner-level caller (`org.roles.manage`) can act on an admin-level
+  account.
+- Nobody can reset an owner's password through it.
+- `GET /v1/organizations/{org_id}/members` reports for each member whether the
+  caller can act on that account (`managed_by_caller`) and whether this reset
+  would be accepted (`resettable_by_caller`). These flags are hints: the action
+  routes check everything again.
+
+### Deactivating and reactivating accounts
+
+Deactivation is a soft, reversible removal. The account can no longer sign in
+(password or SSO) or refresh, its existing tokens are refused at once, and its
+data stays intact.
+
+| Endpoint | Who may call it |
+|----------|-----------------|
+| `PATCH /v1/auth/users/{user_id}/status`, body `{"is_active": false\|true}` | **Platform Admin** |
+| `PATCH /v1/organizations/{org_id}/members/{user_id}/account-status`, same body | A caller with `org.members.manage` on the organization, or a Platform Admin. Same managed-account and owner-level rules as the org-scoped reset. |
+
+Deactivation applies to the account everywhere, not only in one organization.
+To take a user out of a single organization, suspend or remove their
+membership there instead. Both routes refuse your own account (`409`). The
+Platform Admin route also refuses the last active Platform Admin and the last
+active instance admin, and both routes refuse the last active owner of an
+organization (`409`).
+
+## Roles & permissions {#roles-and-permissions}
+
+Authorization in Minder has three layers:
+
+- **Instance role** (`user` / `admin`). On a self-hosted instance this comes
+  from Authelia's `groups` claim: members of the `admins` group get
+  `role: admin`. It still gates some instance-level actions, but on its own
+  it does **not** give cross-tenant user administration.
+- **Platform Admin**: the only cross-tenant identity. It is a separate flag on
+  the account, re-checked against the database on every request, and it gates
+  `/v1/auth/users/*` (list users, change instance role, reset passwords,
+  deactivate accounts). On a fresh install, the first instance admin to sign in
+  becomes Platform Admin automatically, once. After that, it is granted and
+  revoked only with the server CLI (`platform-admin grant|revoke <username>`).
+  An upgraded install that has no Platform Admin issues a one-time setup code
+  with `platform-admin setup-code`, which an instance admin enters on the
+  **Users** page. After a grant, refresh the token
+  (`POST /v1/auth/refresh`) or sign in again to pick up the new claim.
+- **Organization and team roles**: the built-in `owner` / `admin` / `member`
+  organization roles and `team_admin` / `member` team roles. Organizations
+  can also define **custom roles** made of permission keys (for example
+  `org.members.manage`, `org.roles.manage`, `org.billing.manage`) and nestable
+  **permission groups**. A role defined in an organization can be used
+  throughout its sub-organizations. A role gives a member permissions only
+  once it is assigned to them, optionally with an expiry. Use
+  `GET /v1/organizations/{org_id}/members/{user_id}/effective-permissions`
+  to see what a member can actually do.
+
+See [Organizations & teams](organizations-teams.md) for the membership model
+and [API reference](api-reference.md) for the routes.
+
+!!! warning
+    Authorization is checked **per route**. The [API reference](api-reference.md)
+    lists who may call each route. A route listed as "any authenticated user"
+    only checks for a valid token, so don't assume broader per-role
+    restrictions than the ones documented.
 
 ## Traefik (reverse proxy)
 
@@ -219,7 +368,17 @@ setup CLI's start command to generate and print a new one.
 
 ### API requests return 401
 
-- Confirm you sent `Authorization: Bearer <token>` and the token has not expired.
+- Confirm you sent `Authorization: Bearer <token>` and the token has not
+  expired. Access tokens last `JWT_EXPIRATION_MINUTES` (15 by default); renew
+  them with `POST /v1/auth/refresh` (see
+  [Token lifetime & sessions](#token-lifetime-and-sessions)).
+- If refresh also returns `401`, the session can't be renewed and you have to
+  sign in again. This happens when the session is past `JWT_SESSION_MAX_HOURS`
+  (24 h by default), when the account was deactivated, or when its sessions
+  were revoked (password change or reset, role demotion, organization
+  removal or suspension). The response `detail` says which.
+- A stale token gets a `401` even on routes that work without a token. Leave
+  the `Authorization` header out to call them anonymously.
 - Confirm `JWT_SECRET` is set consistently across services.
 - Check the gateway logs:
 

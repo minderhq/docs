@@ -287,7 +287,7 @@ a hardened, public-facing deployment:
 - **Uniform RBAC** — role-based checks cover a specific set of admin-only actions
   and the organizations/teams surface, but they are **not yet uniform**: most
   other write endpoints still only check that a JWT is valid, not its role. See
-  [Authentication](authentication.md#roles-partially-enforced). Don't build
+  [Authentication](authentication.md#roles-and-permissions). Don't build
   workflows that assume broader per-role enforcement.
 - **High availability / multi-server / multi-region** — Minder targets a
   single-host deployment. Any HA or cluster-orchestrated topology is aspirational,

@@ -12,7 +12,7 @@ another:
 
 | Scope | Roles | Where it comes from |
 |-------|-------|---------------------|
-| **Instance** | `user`, `admin` | Set from Authelia's `groups` claim on every login (membership in the `admins` group → `role: admin`); see [Authentication](authentication.md#roles-partially-enforced) |
+| **Instance** | `user`, `admin` | Set from Authelia's `groups` claim on every login (membership in the `admins` group → `role: admin`); see [Authentication](authentication.md#roles-and-permissions) |
 | **Organization** | `owner`, `admin`, `member` | Managed per-org via the organization member endpoints |
 | **Team** | `team_admin`, `member` | Assigned when a team is created or a member is added |
 
@@ -20,8 +20,8 @@ another:
     Being in Authelia's `admins` group grants instance `role: admin` — it does
     **not** imply membership in any team or organization, and vice versa. A
     user's JWT carries a `teams` claim (a flat list of team ids) minted at
-    login/OIDC-callback time and carried forward unchanged on refresh, matching
-    `role`'s existing staleness-until-next-login behaviour.
+    login/OIDC-callback time; `teams` and `role` are re-derived from the
+    database on every token refresh.
 
 ## Organizations
 
@@ -92,13 +92,18 @@ Team invites default to a **7-day expiry**.
     caller is an instance admin. The same guard applies to a self-removal.
     Deleting the team outright is a separate, allowed path.
 
-## Users (instance-admin)
+## Users (Platform Admin)
 
-Instance-level user management is **instance-admin-only**:
+Cross-tenant user management is **Platform Admin only** (see
+[Authentication → Roles & permissions](authentication.md#roles-and-permissions)):
 
 - List users (paginated).
 - Change a user's instance `role` — valid values are `user` / `admin`
   (anything else is a `422`).
+- Deactivate or reactivate an account, and reset its password. Org admins
+  holding `org.members.manage` can do both for accounts their organization
+  manages — see
+  [Authentication → Password management](authentication.md#password-management).
 
 !!! note "OIDC-linked accounts are read-only"
     Changing the role of an **OIDC-linked account** returns a **`409`**:
@@ -106,9 +111,9 @@ Instance-level user management is **instance-admin-only**:
     would silently be undone. For those users, change group membership in
     Authelia instead. In the UI, such accounts show their role read-only.
 
-!!! warning "No last-admin guard here"
-    Unlike teams and organizations, instance user-role management has **no**
-    last-admin guard — an admin can demote the last other admin, or themselves.
+!!! note "Last-admin guard"
+    Demoting the last remaining active instance admin is rejected with a
+    **`409`**. A demotion revokes the demoted user's sessions.
 
 ## Invites
 
@@ -222,7 +227,7 @@ the [Audit Log](using-minder.md#teams-organizations).
 
     Do **not** build workflows that assume broader per-role restrictions are
     enforced than what is documented. See
-    [Authentication → Roles (partially enforced)](authentication.md#roles-partially-enforced)
+    [Authentication → Roles & permissions](authentication.md#roles-and-permissions)
     and [Security](security.md) for the full caveat.
 
 ## In the UI / via the API

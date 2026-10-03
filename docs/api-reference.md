@@ -95,7 +95,8 @@ through here at `/v1/ai/*` — see its own section below).
 |--------|------|-------------|
 | POST | `/v1/auth/register` | Create a user — body `{username, email, password}`. `username` must be 1-50 chars matching `^[A-Za-z0-9_.-]+$`, `email` a valid address, `password` ≥8 chars. No `role` field — every self-registered account is created as `"user"`; admin is only ever granted via Authelia OIDC group membership. **201** on success, **409** if the username/email exists, **422** on a bad body |
 | POST | `/v1/auth/login` | Obtain a JWT — body `{username, password}` → `{access_token, token_type, expires_in, user}` (**401** on bad creds) |
-| POST | `/v1/auth/refresh` | Refresh an access token (bearer token in the `Authorization` header) → `{access_token, token_type, expires_in}` |
+| POST | `/v1/auth/refresh` | Refresh an access token (bearer token in the `Authorization` header) → `{access_token, token_type, expires_in}`. Accepts a token up to `JWT_REFRESH_GRACE_MINUTES` past expiry; re-derives the claims from the database. **401** for a disabled account, revoked sessions, a session past `JWT_SESSION_MAX_HOURS`, or a service/subject-less token; **429** over the refresh rate limit |
+| POST | `/v1/auth/change-password` | Change the caller's **own** local password — body `{current_password, new_password}` (`new_password` ≥8 chars) → `{access_token, token_type, expires_in}`, a replacement token. Revokes every other session of the account. **400** on a wrong `current_password` or an unchanged password, **409** for an SSO-linked account |
 | GET | `/v1/auth/oidc/login` | Start the Authelia SSO redirect — the platform's single-login entry point. Sets short-lived `oidc_state`/`oidc_nonce` httponly cookies (CSRF/replay defense), then 302s to Authelia's `/api/oidc/authorization` |
 | GET | `/v1/auth/oidc/callback` | Authelia's redirect target — exchanges the auth code, verifies the ID token, provisions/loads the user, mints a Minder JWT, and 302s to the client's `/auth/callback#token=...` (fragment, never logged server-side) |
 
@@ -106,13 +107,15 @@ JWT model fit together.
 
 Organizations/teams/RBAC — gateway-native routes (not proxied to a backing
 service). A user's JWT carries a `teams` claim (a flat list of team ids) minted
-at login/OIDC-callback time and carried forward unchanged on refresh (matching
-`role`'s existing staleness-until-next-login behavior).
+at login/OIDC-callback time; `teams` and `role` are re-derived from the database
+on every `POST /v1/auth/refresh`.
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/v1/auth/users` | List users, paginated (`limit`/`offset`). **Instance admin-only** |
-| PATCH | `/v1/auth/users/{user_id}/role` | Change a user's instance `role` (`user`/`admin`, **422** otherwise). **Instance admin-only.** **409** for an OIDC-linked account — Authelia's `groups` claim overwrites `role` on every login, so this would silently be undone. No last-admin guard exists here (an admin can demote the last other admin, or themselves) |
+| GET | `/v1/auth/users` | List users across every tenant, paginated (`limit`/`offset`, optional `org_id`), each with its org `memberships`. **Platform Admin only** (org admins use `GET /v1/organizations/{org_id}/members`) |
+| PATCH | `/v1/auth/users/{user_id}/role` | Change a user's instance `role` (`user`/`admin`, **422** otherwise). **Platform Admin only.** **409** for an OIDC-linked account — Authelia's `groups` claim overwrites `role` on every login, so this would silently be undone — and **409** when demoting the last remaining active admin. A demotion revokes the user's sessions |
+| PATCH | `/v1/auth/users/{user_id}/status` | Deactivate or reactivate an account — body `{is_active}`. **Platform Admin only.** Deactivation blocks sign-in and refresh, and refuses existing tokens at once. **409** for your own account, the last active Platform Admin, the last active instance admin, or the last active owner of an organization |
+| POST | `/v1/auth/users/{user_id}/reset-password` | Reset a user's local password — body `{mode: "set", new_password}` or `{mode: "generate"}` (the response's `temporary_password` is returned once). Sets `must_change_password` and revokes the user's sessions. **Platform Admin only.** **409** for your own account (use `/v1/auth/change-password`) or an SSO-linked account |
 | POST | `/v1/teams` | Create a team — body `{name, description?}`. Any authenticated user; creator becomes its `team_admin` |
 | GET | `/v1/teams` | List all teams on the instance, paginated (`limit`/`offset`) — any authenticated user (a team roster isn't sensitive); there is no "my teams only" filter |
 | GET | `/v1/teams/{team_id}` | Team details + full member list |
@@ -148,6 +151,8 @@ Gateway-native routes, not proxied.
 | GET | `/v1/organizations/{org_id}/members` | List an org's members — a member of that org, or a platform admin. **403** for a non-member (org membership is itself tenant-scoped) |
 | POST | `/v1/organizations/{org_id}/members` | Add a member or change their `org_role` (upsert) — body `{user_id, org_role}`. That org's own `owner`/`admin`, or an instance/platform admin |
 | DELETE | `/v1/organizations/{org_id}/members/{user_id}` | Remove a member — same permission. **409** if this would remove the org's **last owner** |
+| POST | `/v1/organizations/{org_id}/members/{user_id}/reset-password` | Reset a **managed** member's local password — same body and response as `/v1/auth/users/{user_id}/reset-password`. Requires `org.members.manage` on the org (or Platform Admin); acting on an admin-level account needs owner-level authority, and owners can't be reset here. **403** if the account isn't managed by this org, **409** for your own or an SSO-linked account |
+| PATCH | `/v1/organizations/{org_id}/members/{user_id}/account-status` | Deactivate or reactivate a **managed** member's account (account-wide, unlike suspension) — body `{is_active}`. Same permission rules as the org-scoped reset. **409** for your own account or the last active owner of an organization |
 | POST | `/v1/organizations/{org_id}/invites` | Invite a user to the org by email — body `{email, org_role, max_uses}`. Same permission as member management |
 | GET | `/v1/organizations/{org_id}/invites` | List an org's pending/spent invites, paginated. Same permission |
 | POST | `/v1/organizations/{org_id}/invites/{invite_id}/revoke` | Revoke a pending org invite. Same permission. **404** if the invite doesn't belong to this org |
