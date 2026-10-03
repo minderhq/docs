@@ -66,16 +66,25 @@ fronted by the reverse proxy.
 
 ### Core API services (FastAPI)
 
-| Service | Container | Host port |
-|---|---|---|
-| API Gateway | `minder-api-gateway` | 8000 |
-| Plugin Registry | `minder-plugin-registry` | 8001 |
-| Marketplace | `minder-marketplace` | 8002 |
-| Orchestrator | `minder-orchestrator` | 8003 |
-| RAG Pipeline | `minder-rag-pipeline` | 8004 |
-| Model Management | `minder-model-management` | 8005 |
-| TTS / STT | `minder-tts-stt` | 8006 (internal by default) |
-| Graph-RAG | `minder-graph-rag` | 8008 |
+| Service | Container | Port | Published on the host |
+|---|---|---|---|
+| API Gateway | `minder-api-gateway` | 8000 | Yes (`127.0.0.1`) |
+| Plugin Registry | `minder-plugin-registry` | 8001 | Only with `MINDER_DEV_PORTS=1` |
+| Platform Ops | `minder-platform-ops` | 8010 | Only with `MINDER_DEV_PORTS=1` |
+| Marketplace | `minder-marketplace` | 8002 | Only with `MINDER_DEV_PORTS=1` |
+| Orchestrator | `minder-orchestrator` | 8003 | Only with `MINDER_DEV_PORTS=1` |
+| RAG Pipeline | `minder-rag-pipeline` | 8004 | Only with `MINDER_DEV_PORTS=1` |
+| Model Management | `minder-model-management` | 8005 | Only with `MINDER_DEV_PORTS=1` |
+| TTS / STT | `minder-tts-stt` | 8006 | Only with the TTS/STT failover router |
+| Graph-RAG | `minder-graph-rag` | 8008 | Only with `MINDER_DEV_PORTS=1` |
+
+By default only the API Gateway (`8000`) and the web client (`8009`) publish a
+host port. The other core APIs are reached over the internal service network,
+and from outside only through the gateway, which applies auth and rate limits.
+To debug one service directly, set `MINDER_DEV_PORTS=1` in `.env` and run
+`bash setup.sh restart`; that publishes their ports on `127.0.0.1` as well.
+Platform Ops is the operational control plane (service discovery, bundles,
+container logs, backups); see the [API reference](api-reference.md).
 
 Each core API serves interactive docs at `/docs`.
 
@@ -132,11 +141,10 @@ See [Monitoring](monitoring.md).
 bash setup.sh status
 docker ps -a --filter health=unhealthy   # should be empty
 
-# Core API
-curl http://localhost:8000/health   # api-gateway
-curl http://localhost:8001/health   # plugin-registry
-curl http://localhost:8004/health   # rag-pipeline
-curl http://localhost:8008/health   # graph-rag
+# Core API: the gateway's own health, then every core service's /health
+# through the gateway (the internal APIs publish no host port by default)
+curl http://localhost:8000/health
+curl -s http://localhost:8000/v1/status | jq '.services[] | {name, status}'
 
 # Monitoring
 curl http://localhost:9090/-/healthy    # prometheus

@@ -106,7 +106,7 @@ After any upgrade, confirm the core APIs, monitoring, and data stores are back:
 ```bash
 # Core API health (loopback-bound; run on the host)
 curl -f http://localhost:8000/health    # api-gateway
-curl -f http://localhost:8001/health    # plugin-registry
+curl -s http://localhost:8000/v1/status | jq '.services[] | {name, status}'   # all core services
 
 # Monitoring
 curl -f http://localhost:9090/-/healthy  # prometheus

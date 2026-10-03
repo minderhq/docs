@@ -8,7 +8,8 @@ bundles, **not** by editing Compose files. This keeps a small deployment light
 ## The bundles
 
 - **`core`** — the always-on kernel (the API gateway, plugin registry,
-  marketplace, the data stores, the reverse proxy and SSO). It can't be disabled.
+  platform-ops, marketplace, the data stores, the reverse proxy and SSO). It
+  can't be disabled.
 - **`inference`** — the local Ollama LLM runtime (see [AI setup](ai-setup.md)).
 - **`rag`** — the RAG pipeline: knowledge bases, ingestion, and retrieval
   (see [RAG methods](rag-methods.md)).
@@ -46,7 +47,9 @@ You can also manage bundles from the control-plane UI — the **Bundles** sectio
 has an *Available* view (bundles you haven't turned on) and an *Installed* view
 (what's on), with per-bundle toggles, a page-level **Reconcile**, and
 export/import of the whole set. Enabling/disabling a bundle needs an **admin**
-account. See [Using Minder](using-minder.md).
+account. See [Using Minder](using-minder.md). The UI goes through
+the `/v1/bundles` API, which the **platform-ops** service serves behind the API
+gateway (see the [API reference](api-reference.md#bundles)).
 
 ## How it works
 

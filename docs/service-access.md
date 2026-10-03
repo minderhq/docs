@@ -33,25 +33,36 @@ failover-mode sidecars that stay inactive by default), all on the internal
 
 ## Host ports (loopback)
 
-These publish a port on `127.0.0.1` — reach them on the host at
-`http://localhost:<port>`. Each core API also serves interactive docs at `/docs`.
+A published port is bound to `127.0.0.1`; reach it on the host at
+`http://localhost:<port>`. The core API table says which services publish one by
+default. Each core API also serves interactive docs at `/docs`.
 
 ### Core API services (FastAPI)
 
-| Service | Container | Host port |
-|---|---|---|
-| API Gateway | `minder-api-gateway` | 8000 |
-| Plugin Registry | `minder-plugin-registry` | 8001 |
-| Marketplace | `minder-marketplace` | 8002 |
-| Orchestrator | `minder-orchestrator` | 8003 |
-| RAG Pipeline | `minder-rag-pipeline` | 8004 |
-| Model Management | `minder-model-management` | 8005 |
-| TTS / STT | `minder-tts-stt` | internal by default |
-| Graph-RAG | `minder-graph-rag` | 8008 |
+| Service | Container | Port | Published on the host |
+|---|---|---|---|
+| API Gateway | `minder-api-gateway` | 8000 | Yes (`127.0.0.1`) |
+| Plugin Registry | `minder-plugin-registry` | 8001 | Only with `MINDER_DEV_PORTS=1` |
+| Platform Ops | `minder-platform-ops` | 8010 | Only with `MINDER_DEV_PORTS=1` |
+| Marketplace | `minder-marketplace` | 8002 | Only with `MINDER_DEV_PORTS=1` |
+| Orchestrator | `minder-orchestrator` | 8003 | Only with `MINDER_DEV_PORTS=1` |
+| RAG Pipeline | `minder-rag-pipeline` | 8004 | Only with `MINDER_DEV_PORTS=1` |
+| Model Management | `minder-model-management` | 8005 | Only with `MINDER_DEV_PORTS=1` |
+| TTS / STT | `minder-tts-stt` | 8006 | Only with the TTS/STT failover router |
+| Graph-RAG | `minder-graph-rag` | 8008 | Only with `MINDER_DEV_PORTS=1` |
+| Web client | `minder-client` | 8009 | Yes (`127.0.0.1`) |
 
-The TTS/STT service does not publish a host port in the default configuration —
-reach it through the API Gateway proxy. It only binds a host port when its
-optional failover profile is active.
+By default only the API Gateway (`8000`) and the web client (`8009`) publish a
+host port. The other core APIs are reached over the internal service network,
+and from outside only through the gateway, which applies auth and rate limits.
+To debug one service directly, set `MINDER_DEV_PORTS=1` in `.env` and run
+`bash setup.sh restart`; that publishes their ports on `127.0.0.1` as well.
+Platform Ops is the operational control plane (service discovery, bundles,
+container logs, backups); see the [API reference](api-reference.md).
+
+The TTS/STT service does not publish a host port in the default configuration
+either; reach it through the API Gateway proxy. It only binds a host port when
+its optional failover profile is active.
 
 ### Observability and proxy
 
@@ -73,9 +84,9 @@ See [Monitoring](monitoring.md).
 
 ```bash
 # Reach loopback services on the host
-curl http://localhost:8000/health     # API Gateway
-curl http://localhost:8001/v1/plugins # Plugin Registry (list plugins)
-curl http://localhost:8004/health     # RAG Pipeline
+curl http://localhost:8000/health      # API Gateway
+curl http://localhost:8000/v1/plugins  # Plugin Registry, through the gateway
+curl http://localhost:8000/v1/status   # every core service's /health, through the gateway
 # open http://localhost:3000 for Grafana
 ```
 

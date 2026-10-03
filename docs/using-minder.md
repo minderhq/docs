@@ -207,8 +207,9 @@ everyone; synthesizing or transcribing needs login.
 ### Status (`/platform/status`)
 
 Health, reported version, and recent logs for every core service. The health
-grid itself is open to everyone; viewing logs needs login, since they can
-contain stack traces treated as sensitive.
+grid itself is open to everyone; viewing logs needs a
+[Platform Admin](platform-admin.md) account, since log output carries every
+tenant's data and can contain stack traces treated as sensitive.
 
 ### Backups (`/platform/backups`)
 
