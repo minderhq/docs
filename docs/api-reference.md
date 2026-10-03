@@ -97,6 +97,8 @@ through here at `/v1/ai/*` — see its own section below).
 | POST | `/v1/auth/login` | Obtain a JWT — body `{username, password}` → `{access_token, token_type, expires_in, user}` (**401** on bad creds) |
 | POST | `/v1/auth/refresh` | Refresh an access token (bearer token in the `Authorization` header) → `{access_token, token_type, expires_in}`. Accepts a token up to `JWT_REFRESH_GRACE_MINUTES` past expiry; re-derives the claims from the database. **401** for a disabled account, revoked sessions, a session past `JWT_SESSION_MAX_HOURS`, or a service/subject-less token; **429** over the refresh rate limit |
 | POST | `/v1/auth/change-password` | Change the caller's **own** local password — body `{current_password, new_password}` (`new_password` ≥8 chars) → `{access_token, token_type, expires_in}`, a replacement token. Revokes every other session of the account. **400** on a wrong `current_password` or an unchanged password, **409** for an SSO-linked account |
+| GET | `/v1/auth/platform-admin/claim` | Whether the caller should be offered the Platform Admin setup-code prompt → `{setup_code_required}`. `true` only for an active instance admin on an upgraded install that is waiting for its first Platform Admin. Never returns the code. **404** when no setup code is in use. See [Platform Admin](platform-admin.md#upgraded-install-the-one-time-setup-code) |
+| POST | `/v1/auth/platform-admin/claim` | Claim Platform Admin with the one-time setup code printed by `setup.sh platform-admin setup-code`. Body `{code}` → `{granted, refresh_required}`; refresh the token to pick up the claim. Active instance admins only. **403** for a non-admin caller or a wrong, missing, expired or locked-out code, **404** when no setup code is in use, **409** if you are already a Platform Admin, **429** over the attempt limit. Refused attempts are audited |
 | GET | `/v1/auth/oidc/login` | Start the Authelia SSO redirect — the platform's single-login entry point. Sets short-lived `oidc_state`/`oidc_nonce` httponly cookies (CSRF/replay defense), then 302s to Authelia's `/api/oidc/authorization` |
 | GET | `/v1/auth/oidc/callback` | Authelia's redirect target — exchanges the auth code, verifies the ID token, provisions/loads the user, mints a Minder JWT, and 302s to the client's `/auth/callback#token=...` (fragment, never logged server-side) |
 
@@ -283,7 +285,7 @@ data in Redis, and auto-syncs with the marketplace.
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/v1/containers/{name}/logs` | Recent stdout/stderr for one of the 8 core services (`?tail=`, default 200, max 2000), JWT-gated (log output can carry stack traces or an accidentally-logged secret). `name` is checked against a fixed allowlist before building a container name. `404` unknown service or container not running, `503` if the socket proxy itself is unreachable |
+| GET | `/v1/containers/{name}/logs` | Recent stdout/stderr for one of the 8 core services (`?tail=`, default 200, max 2000). **Platform Admin only** (log output carries every tenant's data and can hold stack traces or an accidentally-logged secret). `name` is checked against a fixed allowlist before building a container name. `404` unknown service or container not running, `503` if the socket proxy itself is unreachable |
 
 Fetched over the same least-privilege docker-socket proxy `/v1/bundles` uses,
 extended with a GET-only, no-exec/attach/create logs rule. Docker's logs API

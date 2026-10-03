@@ -46,11 +46,13 @@ independent of Minder's own login — see [Authelia](#authelia-sso-oidc) below.
    with no extra prompt.
 3. Authelia redirects back with an authorization code. The api-gateway exchanges
    it for a verified identity, then looks up or provisions a matching Minder user.
-   First login creates the account, or links it to a pre-existing local account
-   with the same username. Every login syncs username, email, and role from
-   Authelia's `groups` claim — including the first login that links a pre-existing
-   local account, so a user in Authelia's `admins` group gets `role: admin`
-   starting with that first SSO login.
+   First login creates the account. It links to a pre-existing local account
+   with the same username only if an operator approved that link beforehand
+   (see [Moving a local account to SSO](#moving-a-local-account-to-sso)).
+   Every login syncs username, email, and role from Authelia's `groups` claim,
+   including the first login that links an approved local account, so a user in
+   Authelia's `admins` group gets `role: admin` starting with that first SSO
+   login.
 4. The api-gateway mints a normal Minder JWT and redirects your browser to
    `/auth/callback#token=...`. The client reads the token from the URL fragment
    (never sent to any server, so it never lands in an access log) and you're
@@ -114,6 +116,40 @@ Content-Type: application/json
 `expires_in` is in seconds: `JWT_EXPIRATION_MINUTES × 60` (`900` by default).
 `must_change_password` is `true` after an administrator has reset the password
 (see [Password management](#password-management)).
+
+### Moving a local account to SSO {#moving-a-local-account-to-sso}
+
+An SSO login never takes over a local account just because the usernames
+match. Anyone can register a local account, so a matching username alone
+doesn't prove it belongs to the SSO user. Without an approval, the first SSO
+login gets a **separate** account: its username gets a suffix
+(`<username>-<8 characters>`), and the local account is left as it was. The
+refused link is logged and audited.
+
+To move a genuine local account to SSO, so the user keeps their data under the
+same account, approve it on the server **before the user's first SSO login**:
+
+```bash
+bash setup.sh sso-link approve <username>   # allow the link
+bash setup.sh sso-link revoke <username>    # withdraw a pending approval
+bash setup.sh sso-link list                 # list pending approvals
+```
+
+- Check that the local account really belongs to that person first. `approve`
+  shows its registered email, which was self-declared at registration and
+  never verified.
+- Approve **before** the first SSO login. Once the SSO identity has its own
+  account, it is never linked to another one. In that case, the user keeps
+  using the SSO account.
+- The next SSO login with that username takes over the account and uses up the
+  approval. The link replaces the local password (the account becomes
+  SSO-only), ends the account's existing sessions, and takes the role and email
+  from Authelia.
+- A linked account loses Platform Admin if it had it, and is never made
+  Platform Admin automatically. Re-grant it with the CLI if needed; see
+  [Platform Admin](platform-admin.md).
+- `approve` and `revoke` are audited. They are refused for an account that is
+  already linked to SSO.
 
 ### Token lifetime & sessions {#token-lifetime-and-sessions}
 
@@ -275,7 +311,8 @@ Authorization in Minder has three layers:
   An upgraded install that has no Platform Admin issues a one-time setup code
   with `platform-admin setup-code`, which an instance admin enters on the
   **Users** page. After a grant, refresh the token
-  (`POST /v1/auth/refresh`) or sign in again to pick up the new claim.
+  (`POST /v1/auth/refresh`) or sign in again to pick up the new claim. See
+  [Platform Admin](platform-admin.md) for the operator steps.
 - **Organization and team roles**: the built-in `owner` / `admin` / `member`
   organization roles and `team_admin` / `member` team roles. Organizations
   can also define **custom roles** made of permission keys (for example

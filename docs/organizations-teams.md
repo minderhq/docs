@@ -95,7 +95,8 @@ Team invites default to a **7-day expiry**.
 ## Users (Platform Admin)
 
 Cross-tenant user management is **Platform Admin only** (see
-[Authentication → Roles & permissions](authentication.md#roles-and-permissions)):
+[Authentication → Roles & permissions](authentication.md#roles-and-permissions);
+[Platform Admin](platform-admin.md) explains how an operator gets the role):
 
 - List users (paginated).
 - Change a user's instance `role` — valid values are `user` / `admin`

@@ -29,6 +29,10 @@ bash setup.sh install --profile standard   # minimal | standard | full
 It provisions the whole stack, fills secrets, and self-heals. `--profile` seeds
 the initial set of **bundles** (capability groups) to enable.
 
+On a fresh install, the first instance admin to sign in becomes
+**Platform Admin**, the cross-tenant operator role, automatically. See
+[Platform Admin](platform-admin.md) to grant it to others.
+
 ## Capability bundles
 
 You turn capabilities on and off as units — not by editing compose files:
