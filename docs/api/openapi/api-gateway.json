@@ -4325,6 +4325,24 @@
     "/v1/auth/oidc/login": {
       "get": {
         "operationId": "oidc_login_v1_auth_oidc_login_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "cnonce",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cnonce"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -4333,6 +4351,16 @@
               }
             },
             "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
           }
         },
         "summary": "Oidc Login",
