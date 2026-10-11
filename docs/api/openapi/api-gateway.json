@@ -11150,7 +11150,7 @@
     },
     "/v1/conversations/{path}": {
       "delete": {
-        "description": "Proxy /v1/conversations/* to RAG Pipeline.\n\nThe conversation-history endpoints (e.g. GET /v1/conversations/mine, #934)\nlive on rag-pipeline under their own /v1/conversations/* path, not nested\nunder /v1/rag/* -- a conversation isn't scoped to a pipeline (see\nlist_my_conversations' own docstring), so it gets its own top-level proxy\nroute here rather than being folded into proxy_to_rag_pipeline above.\nWithout this, the client's Conversations page 404s at the gateway before\never reaching rag-pipeline -- caught live on hantal, not by unit tests\n(which mock the client's fetch layer and never exercise real routing).",
+        "description": "Proxy /v1/conversations/* to RAG Pipeline.\n\nThe conversation-history endpoints (e.g. GET /v1/conversations/mine, #934)\nlive on rag-pipeline under their own /v1/conversations/* path, not nested\nunder /v1/rag/* -- a conversation isn't scoped to a pipeline (see\nlist_my_conversations' own docstring), so it gets its own top-level proxy\nroute here rather than being folded into proxy_to_rag_pipeline above.\nWithout this, the client's Conversations page 404s at the gateway before\never reaching rag-pipeline -- caught on a live deployment, not by unit tests\n(which mock the client's fetch layer and never exercise real routing).",
         "operationId": "proxy_to_conversations_v1_conversations__path__delete",
         "parameters": [
           {
@@ -11186,7 +11186,7 @@
         "summary": "Proxy To Conversations"
       },
       "get": {
-        "description": "Proxy /v1/conversations/* to RAG Pipeline.\n\nThe conversation-history endpoints (e.g. GET /v1/conversations/mine, #934)\nlive on rag-pipeline under their own /v1/conversations/* path, not nested\nunder /v1/rag/* -- a conversation isn't scoped to a pipeline (see\nlist_my_conversations' own docstring), so it gets its own top-level proxy\nroute here rather than being folded into proxy_to_rag_pipeline above.\nWithout this, the client's Conversations page 404s at the gateway before\never reaching rag-pipeline -- caught live on hantal, not by unit tests\n(which mock the client's fetch layer and never exercise real routing).",
+        "description": "Proxy /v1/conversations/* to RAG Pipeline.\n\nThe conversation-history endpoints (e.g. GET /v1/conversations/mine, #934)\nlive on rag-pipeline under their own /v1/conversations/* path, not nested\nunder /v1/rag/* -- a conversation isn't scoped to a pipeline (see\nlist_my_conversations' own docstring), so it gets its own top-level proxy\nroute here rather than being folded into proxy_to_rag_pipeline above.\nWithout this, the client's Conversations page 404s at the gateway before\never reaching rag-pipeline -- caught on a live deployment, not by unit tests\n(which mock the client's fetch layer and never exercise real routing).",
         "operationId": "proxy_to_conversations_v1_conversations__path__get",
         "parameters": [
           {
@@ -11222,7 +11222,7 @@
         "summary": "Proxy To Conversations"
       },
       "patch": {
-        "description": "Proxy /v1/conversations/* to RAG Pipeline.\n\nThe conversation-history endpoints (e.g. GET /v1/conversations/mine, #934)\nlive on rag-pipeline under their own /v1/conversations/* path, not nested\nunder /v1/rag/* -- a conversation isn't scoped to a pipeline (see\nlist_my_conversations' own docstring), so it gets its own top-level proxy\nroute here rather than being folded into proxy_to_rag_pipeline above.\nWithout this, the client's Conversations page 404s at the gateway before\never reaching rag-pipeline -- caught live on hantal, not by unit tests\n(which mock the client's fetch layer and never exercise real routing).",
+        "description": "Proxy /v1/conversations/* to RAG Pipeline.\n\nThe conversation-history endpoints (e.g. GET /v1/conversations/mine, #934)\nlive on rag-pipeline under their own /v1/conversations/* path, not nested\nunder /v1/rag/* -- a conversation isn't scoped to a pipeline (see\nlist_my_conversations' own docstring), so it gets its own top-level proxy\nroute here rather than being folded into proxy_to_rag_pipeline above.\nWithout this, the client's Conversations page 404s at the gateway before\never reaching rag-pipeline -- caught on a live deployment, not by unit tests\n(which mock the client's fetch layer and never exercise real routing).",
         "operationId": "proxy_to_conversations_v1_conversations__path__patch",
         "parameters": [
           {
@@ -11258,7 +11258,7 @@
         "summary": "Proxy To Conversations"
       },
       "post": {
-        "description": "Proxy /v1/conversations/* to RAG Pipeline.\n\nThe conversation-history endpoints (e.g. GET /v1/conversations/mine, #934)\nlive on rag-pipeline under their own /v1/conversations/* path, not nested\nunder /v1/rag/* -- a conversation isn't scoped to a pipeline (see\nlist_my_conversations' own docstring), so it gets its own top-level proxy\nroute here rather than being folded into proxy_to_rag_pipeline above.\nWithout this, the client's Conversations page 404s at the gateway before\never reaching rag-pipeline -- caught live on hantal, not by unit tests\n(which mock the client's fetch layer and never exercise real routing).",
+        "description": "Proxy /v1/conversations/* to RAG Pipeline.\n\nThe conversation-history endpoints (e.g. GET /v1/conversations/mine, #934)\nlive on rag-pipeline under their own /v1/conversations/* path, not nested\nunder /v1/rag/* -- a conversation isn't scoped to a pipeline (see\nlist_my_conversations' own docstring), so it gets its own top-level proxy\nroute here rather than being folded into proxy_to_rag_pipeline above.\nWithout this, the client's Conversations page 404s at the gateway before\never reaching rag-pipeline -- caught on a live deployment, not by unit tests\n(which mock the client's fetch layer and never exercise real routing).",
         "operationId": "proxy_to_conversations_v1_conversations__path__post",
         "parameters": [
           {
@@ -11294,7 +11294,7 @@
         "summary": "Proxy To Conversations"
       },
       "put": {
-        "description": "Proxy /v1/conversations/* to RAG Pipeline.\n\nThe conversation-history endpoints (e.g. GET /v1/conversations/mine, #934)\nlive on rag-pipeline under their own /v1/conversations/* path, not nested\nunder /v1/rag/* -- a conversation isn't scoped to a pipeline (see\nlist_my_conversations' own docstring), so it gets its own top-level proxy\nroute here rather than being folded into proxy_to_rag_pipeline above.\nWithout this, the client's Conversations page 404s at the gateway before\never reaching rag-pipeline -- caught live on hantal, not by unit tests\n(which mock the client's fetch layer and never exercise real routing).",
+        "description": "Proxy /v1/conversations/* to RAG Pipeline.\n\nThe conversation-history endpoints (e.g. GET /v1/conversations/mine, #934)\nlive on rag-pipeline under their own /v1/conversations/* path, not nested\nunder /v1/rag/* -- a conversation isn't scoped to a pipeline (see\nlist_my_conversations' own docstring), so it gets its own top-level proxy\nroute here rather than being folded into proxy_to_rag_pipeline above.\nWithout this, the client's Conversations page 404s at the gateway before\never reaching rag-pipeline -- caught on a live deployment, not by unit tests\n(which mock the client's fetch layer and never exercise real routing).",
         "operationId": "proxy_to_conversations_v1_conversations__path__put",
         "parameters": [
           {
@@ -13686,7 +13686,7 @@
     },
     "/v1/marketplace/plugins/{plugin_id}/install": {
       "post": {
-        "description": "Install a plugin for the authenticated user.\n\nThe user identity comes from the JWT (`sub`) — it used to be a redundant `user_id`\nin the request body/query that duplicated the authenticated principal (#147/C7).\n\nplugin_id is str()-cast before InstallationResponse construction: asyncpg returns\nUUID columns as uuid.UUID objects, and InstallationResponse.plugin_id is a `str`\nfield -- pydantic v2 does not coerce UUID -> str, so this 500'd on response\nserialization for every install until fixed (#402, found live on hantal).\n\n#892: install used to unconditionally set `enabled=TRUE` on both branches\nbelow, completely bypassing #748's dependency enforcement -- the single\nmost common real-world path (install a plugin) could land an enabled\nplugin whose dependency was never installed, the exact invariant #748\nexists to prevent. Both branches now write the row with `enabled=FALSE`\nfirst, run the SAME `_ensure_dependencies_enabled` check `/enable`\nalready runs, and only flip to `enabled=TRUE` if it passes -- 409ing\n(naming the missing dependency) otherwise, same as `/enable`. The common\ncase (no unmet dependency) still lands enabled immediately, unchanged.\nA 409 here leaves the row installed-but-disabled rather than rolling\nback the install entirely -- once the missing dependency is installed,\nthe same install call (or a plain `/enable`) completes it.",
+        "description": "Install a plugin for the authenticated user.\n\nThe user identity comes from the JWT (`sub`) — it used to be a redundant `user_id`\nin the request body/query that duplicated the authenticated principal (#147/C7).\n\nplugin_id is str()-cast before InstallationResponse construction: asyncpg returns\nUUID columns as uuid.UUID objects, and InstallationResponse.plugin_id is a `str`\nfield -- pydantic v2 does not coerce UUID -> str, so this 500'd on response\nserialization for every install until fixed (#402, found on a live deployment).\n\n#892: install used to unconditionally set `enabled=TRUE` on both branches\nbelow, completely bypassing #748's dependency enforcement -- the single\nmost common real-world path (install a plugin) could land an enabled\nplugin whose dependency was never installed, the exact invariant #748\nexists to prevent. Both branches now write the row with `enabled=FALSE`\nfirst, run the SAME `_ensure_dependencies_enabled` check `/enable`\nalready runs, and only flip to `enabled=TRUE` if it passes -- 409ing\n(naming the missing dependency) otherwise, same as `/enable`. The common\ncase (no unmet dependency) still lands enabled immediately, unchanged.\nA 409 here leaves the row installed-but-disabled rather than rolling\nback the install entirely -- once the missing dependency is installed,\nthe same install call (or a plain `/enable`) completes it.",
         "operationId": "install_plugin_v1_marketplace_plugins__plugin_id__install_post",
         "parameters": [
           {
