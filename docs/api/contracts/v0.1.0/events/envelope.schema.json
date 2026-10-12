@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mindhub.invalid/contracts/events/envelope.schema.json",
+  "title": "MindHub domain-event envelope",
+  "description": "Every event published through a service outbox. Delivery is at-least-once; consumers de-duplicate by id.",
+  "type": "object",
+  "required": ["id", "type", "version", "source", "occurred_at", "data"],
+  "additionalProperties": false,
+  "properties": {
+    "id": {"type": "string", "format": "uuid", "description": "Unique event id; the de-duplication key."},
+    "type": {"type": "string", "pattern": "^[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*$", "description": "<producing context>.<event name>, e.g. commerce.order_paid"},
+    "version": {"type": "integer", "minimum": 1, "description": "Schema version of data for this type."},
+    "source": {"type": "string", "description": "Producing service name."},
+    "subject": {"type": ["string", "null"], "description": "Aggregate id the event is about."},
+    "occurred_at": {"type": "string", "format": "date-time"},
+    "data": {"type": "object", "description": "Type-specific payload; see <type>.v<version>.schema.json."}
+  }
+}

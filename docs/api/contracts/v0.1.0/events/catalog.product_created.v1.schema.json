@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mindhub.invalid/contracts/events/catalog.product_created.v1.schema.json",
+  "title": "catalog.product_created v1 (data)",
+  "description": "Emitted by catalog when a product identity is created. Identity never changes afterwards.",
+  "type": "object",
+  "required": [
+    "product_id",
+    "kind",
+    "publisher_id",
+    "visibility",
+    "access"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "product_id": {
+      "type": "string",
+      "pattern": "^(?:plugin|bundle|agent|service|application|knowledge\\-base|ai\\-capability|cloud\\-capability|add\\-on)\\.[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$"
+    },
+    "kind": {
+      "type": "string"
+    },
+    "publisher_id": {
+      "type": "string"
+    },
+    "visibility": {
+      "enum": [
+        "private",
+        "shared",
+        "public"
+      ]
+    },
+    "access": {
+      "enum": [
+        "free",
+        "licensed"
+      ]
+    }
+  }
+}

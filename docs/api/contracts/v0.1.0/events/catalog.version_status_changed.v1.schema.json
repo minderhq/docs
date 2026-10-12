@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mindhub.invalid/contracts/events/catalog.version_status_changed.v1.schema.json",
+  "title": "catalog.version_status_changed v1 (data)",
+  "description": "Emitted on every other version status transition (deprecate, re-publish, yank; block is the security path, #27).",
+  "type": "object",
+  "required": [
+    "product_id",
+    "version",
+    "from",
+    "to"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "product_id": {
+      "type": "string",
+      "pattern": "^(?:plugin|bundle|agent|service|application|knowledge\\-base|ai\\-capability|cloud\\-capability|add\\-on)\\.[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$"
+    },
+    "version": {
+      "type": "string"
+    },
+    "from": {
+      "enum": [
+        "draft",
+        "published",
+        "deprecated",
+        "yanked",
+        "blocked"
+      ]
+    },
+    "to": {
+      "enum": [
+        "draft",
+        "published",
+        "deprecated",
+        "yanked",
+        "blocked"
+      ]
+    }
+  }
+}

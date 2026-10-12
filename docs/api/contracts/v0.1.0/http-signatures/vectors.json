@@ -1,0 +1,31 @@
+{
+  "description": "Golden vectors for MindHub's RFC 9421 Ed25519 profile. The key is the RFC 8032 §7.1 test-1 key: public test material, never a real key.",
+  "private_key_seed_hex": "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60",
+  "public_key_b64url": "11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo",
+  "cases": [
+    {
+      "name": "post-json",
+      "method": "POST",
+      "path": "/v1/installations/device-authorizations",
+      "query": "",
+      "body": "{\"a\":1}",
+      "headers": {
+        "Content-Digest": "sha-256=:AVq9f1zFei3ZS3WQ8ErYCEJzkF7jPsXOvq5iJ2qX+GI=:",
+        "Signature-Input": "sig1=(\"@method\" \"@path\" \"content-digest\");created=1767225600;nonce=\"AAAAAAAAAAAAAAAAAAAAAA\";keyid=\"inst_000000000000000000000000\";alg=\"ed25519\"",
+        "Signature": "sig1=:weH8OB29O8cN1y0G5w46Ktni6mGe7MN+Ynks7Q+0+yNj5gGzx/MOf3N9VkWnbk/7GdftPuKka38zbjAmV6LgCQ==:"
+      }
+    },
+    {
+      "name": "get-with-query",
+      "method": "GET",
+      "path": "/v1/revocations",
+      "query": "since=42",
+      "body": "",
+      "headers": {
+        "Content-Digest": "sha-256=:47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU=:",
+        "Signature-Input": "sig1=(\"@method\" \"@path\" \"@query\" \"content-digest\");created=1767225600;nonce=\"AAAAAAAAAAAAAAAAAAAAAA\";keyid=\"inst_000000000000000000000000\";alg=\"ed25519\"",
+        "Signature": "sig1=:5ioOhDOMaSeRzwN81K7tX6kygi7xRLSMuA8s4FNrpOpmnd6nIRbJPQOM+1lZv+0jikJbY1eQ2ScKlNN9ZuJaDg==:"
+      }
+    }
+  ]
+}
