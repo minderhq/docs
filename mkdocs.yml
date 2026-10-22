@@ -88,6 +88,7 @@ nav:
       - Quickstart: quickstart.md
       - Self-hosting: self-hosting.md
       - AI setup: ai-setup.md
+      - Connect your models: model-providers.md
       - Authentication: authentication.md
       - Security: security.md
       - External services: external-services.md

@@ -584,8 +584,8 @@ only ever return a masked form, never the plaintext.
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/v1/model-providers/presets` | Suggested "add provider" configurations (OpenAI, Anthropic, **vLLM (self-hosted)**, generic OpenAI-compatible) to pre-fill the create form — each carries `adapter`, `is_local`, a `base_url_placeholder`, `requires_api_key`, and help text. Static, credential-free metadata |
-| POST | `/v1/model-providers` | Create a provider — body `{adapter: "openai_compatible"\|"anthropic", name, base_url?, api_key, is_local?}` (`adapter` **422** otherwise; `api_key` required and non-empty even for a keyless vLLM server). `is_local: true` marks self-hosted/local compute. **201** |
+| GET | `/v1/model-providers/presets` | Suggested "add provider" configurations (OpenAI, Anthropic, OpenRouter, z.ai, z.ai Coding Plan, **vLLM (self-hosted)**, **Ollama (self-hosted)**, generic OpenAI-compatible) to pre-fill the create form — each carries `adapter`, `is_local`, a `base_url_placeholder`, `requires_api_key`, and help text. Static, credential-free metadata |
+| POST | `/v1/model-providers` | Create a provider — body `{adapter: "openai_compatible"\|"anthropic"\|"ollama", name, base_url?, api_key, is_local?, models?, privacy_acknowledged?, pii_masking_enabled?}` (`adapter` **422** otherwise; `base_url` required for `ollama`; `api_key` required and non-empty even for a keyless vLLM server). `is_local: true` marks self-hosted/local compute (allowed to use private addresses, never PII-masked, satisfies `local_only`). A non-local row must be created with `privacy_acknowledged: true` to be enabled; `pii_masking_enabled` defaults to true. `models` (≤200 ids) is what the pickers list. **201** |
 | GET | `/v1/model-providers` | List this org's providers (keys masked) |
 | GET | `/v1/model-providers/{id}` | One provider (masked). **404** if not in the caller's tenant |
 | PATCH | `/v1/model-providers/{id}` | Update `name`/`base_url`/`api_key`/`enabled`/`is_local` (partial) |

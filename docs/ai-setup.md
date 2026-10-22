@@ -1,9 +1,17 @@
 # AI setup
 
-Minder runs LLM inference through **Ollama**. In the default *internal* mode the
-platform runs its own Ollama container and auto-pulls the configured models
-during setup — no manual step required. You can also point Minder at an
+This page covers the **install backend**: the one Ollama endpoint that serves
+every embedding and the install-default models. In the default *internal* mode
+the platform runs its own Ollama container and auto-pulls the configured models
+during setup, so there is no manual step. You can also point Minder at an
 external Ollama, or run a failover pair.
+
+!!! tip "vLLM, cloud providers and per-task defaults"
+    Answer and chat models can also come from **organization providers**: vLLM,
+    LM Studio and other OpenAI-compatible servers, OpenAI, Anthropic,
+    OpenRouter, z.ai or a second Ollama. You add these in the client, and pick
+    a default model for each task there too. See
+    [Connect your models](model-providers.md).
 
 !!! note
     Ollama listens on port `11434` **internal to the Docker network only** — it
@@ -36,6 +44,9 @@ bash setup.sh ollama-mode external http://192.168.1.50:11434
 
 # Failover: external primary + fallback to the internal container
 bash setup.sh ollama-mode failover http://192.168.1.50:11434
+
+# Pool: spread requests over several Ollama servers (least-connections)
+bash setup.sh ollama-mode pool 192.168.1.50:11434,192.168.1.51:11434
 ```
 
 This edits `.env` (`OLLAMA_BASE_URL`, plus `OLLAMA_FAILOVER_PRIMARY` for
@@ -49,16 +60,27 @@ keeps it running as a warm standby.
 **not** by your host shell. An address that works from the host (or only on your
 LAN's DNS) can still be unreachable from a container:
 
-- **Ollama running natively on the same machine as Docker** — use
-  `http://host.docker.internal:11434` (Docker Desktop's host alias) or the
-  host's LAN IP (e.g. `http://192.168.1.50:11434`). `http://localhost:11434`
-  will **not** work from a container (there, `localhost` is the container
-  itself).
+- **Ollama running natively on the same machine as Docker:**
+  - **Windows/macOS (Docker Desktop):** use `http://host.docker.internal:11434`,
+    Docker Desktop's host alias.
+  - **Linux (Docker Engine):** `host.docker.internal` does **not** resolve, so
+    use the host's LAN IP, e.g. `http://192.168.1.50:11434`.
+  - `http://localhost:11434` never works from a container, because there
+    `localhost` is the container itself.
 - **A bare hostname** (e.g. `http://gpu-node:11434`) only works if that name
   resolves *inside the containers*.
 
 Ollama must also listen on all interfaces for containers to reach it — start the
 native server with `OLLAMA_HOST=0.0.0.0` (not the default `127.0.0.1`).
+
+!!! danger "Bound the native Ollama's default context length"
+    Minder always sends a bounded context size (`OLLAMA_MAX_NUM_CTX`, default
+    16384). Other clients of the same Ollama may not, including the optional
+    *Minder AI Chat* (Open WebUI). They get the server's default, and the
+    Ollama desktop app's *Context length* slider can set that as high as 256K.
+    That is tens of GB per model and can freeze the host. Set the slider to
+    16K, or start the server with `OLLAMA_CONTEXT_LENGTH=16384`. See
+    [Sizing](model-providers.md#sizing-will-the-model-fit).
 
 !!! warning "Silent failure if the URL is unreachable"
     If `OLLAMA_BASE_URL` is unreachable, a document upload still returns `200`
@@ -67,8 +89,9 @@ native server with `OLLAMA_HOST=0.0.0.0` (not the default `127.0.0.1`).
 
     ```bash
     # expect 200 — this is what the RAG/model-management services actually see
-    docker exec minder-rag-pipeline curl -s -o /dev/null -w '%{http_code}\n' \
-      --max-time 5 "$OLLAMA_BASE_URL/api/tags"
+    # (single quotes: the container expands its own OLLAMA_BASE_URL, not your shell)
+    docker exec minder-rag-pipeline sh -c \
+      'curl -s -o /dev/null -w "%{http_code}\n" --max-time 5 "$OLLAMA_BASE_URL/api/tags"'
     ```
 
 ## Single-host setup (Ollama already running natively)
@@ -130,6 +153,17 @@ On startup in internal mode, Minder pulls the models listed in `OLLAMA_MODELS`
 (default `llama3.2` + `nomic-embed-text`), skipping any already present. Models
 live in a Docker volume, so they survive container recreation.
 
+- **Choose models for your hardware** with `bash setup.sh model-tier`, which
+  detects the hardware and suggests a tier, then `bash setup.sh model-tier apply
+  <tier>`. You can also pass `--model-tier <tier>` to `install`. A tier rewrites
+  the three model variables below. See
+  [the tier table](model-providers.md#option-1-bundled-ollama-default).
+- **External mode pulls nothing.** Pull the models on the Ollama host yourself:
+  `ollama pull <model>`.
+- **Install-time pulls** are skipped when `OLLAMA_AUTOMATIC_PULL` isn't `true`.
+  Each model gets 300 s. A slow download only prints a warning, so check
+  `ollama list` afterwards.
+
 Configure in the root `.env`:
 
 ```bash
@@ -168,8 +202,15 @@ disable pulls), then `bash setup.sh restart`.
 
 ## Using your models
 
-- **RAG pipeline** uses `OLLAMA_EMBEDDING_MODEL` for embeddings and
-  `OLLAMA_LLM_MODEL` for generation — see [RAG methods](rag-methods.md).
+- **RAG pipeline:**
+  - It embeds with each knowledge base's embedding model. The default is
+    `OLLAMA_EMBEDDING_MODEL`. The model is fixed per knowledge base and always
+    served by this Ollama.
+  - It generates with the first model that is set, in this order: the
+    pipeline's or knowledge base's model, the organization's *Answer* default,
+    then `OLLAMA_LLM_MODEL`. See
+    [How Minder chooses a model](model-providers.md#how-minder-chooses-a-model)
+    and [RAG methods](rag-methods.md).
 - **Model management** lists, pulls, deletes, and tests Ollama models via the
   control-plane UI ([Using Minder](using-minder.md#model-management-platform)).
 - **OpenWebUI** is the web chat frontend (reached via the reverse proxy). It
