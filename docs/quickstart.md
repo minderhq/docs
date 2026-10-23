@@ -24,8 +24,8 @@ a knowledge base, upload a document, build a pipeline over it, and ask a questio
    answered from.
 3. **Upload a document.** Open the knowledge base and upload a file — PDF, Word,
    a spreadsheet, an image to OCR, a recording to transcribe, and
-   [many more formats](ingestion.md). Upload runs as a background job: it comes back as `processing` and
-   the page polls until it's `completed` (with chunk/vector counts) or `failed`.
+   [many more formats](ingestion.md). Upload runs as a background job: it comes
+   back as `processing` and the page polls until it's `completed` (with chunk/vector counts) or `failed`.
    You can expand a document to inspect its stored chunks — useful for telling a
    bad extraction apart from a retrieval problem.
 4. **Create a pipeline.** Go to **RAG → Pipelines** and create a pipeline over

@@ -5,7 +5,7 @@ stack — LLM inference, vector search, and a knowledge graph — onto constrain
 machines like an ARM single-board computer.
 
 !!! note "Measure on your own hardware"
-    There are no canned benchmark numbers here. Real behaviour depends on your
+    There are no canned benchmark numbers here. Real behavior depends on your
     CPU, RAM, storage, and the model you run. Use the observability stack to get
     real figures for *your* box — see [Monitoring](monitoring.md). For the
     software-side tuning levers (model choice, container limits, service

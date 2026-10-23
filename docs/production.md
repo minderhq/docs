@@ -24,7 +24,7 @@ Two files define a deployment:
   secure random value on install/start. Edit `./.env`, then restart to apply.
 - **The stack itself** is one hand-maintained Compose file that `setup.sh` always
   invokes for you. You do not regenerate or template it; enable and disable
-  capabilities through **bundles** (see [Self-hosting](self-hosting.md)), not by
+  capabilities through **bundles** (see [Capability bundles](bundles.md)), not by
   editing Compose by hand.
 
 ```bash
@@ -57,36 +57,18 @@ the application/monitoring services below publish host ports; **all storage
 backends are internal-only**, reached over the `minder-network` Docker network or
 fronted by the reverse proxy.
 
-!!! note "Host ports are loopback-bound"
-    Every non-proxy host port is bound to `127.0.0.1` — reachable **on the box**
-    (`curl http://localhost:<port>` for ops and health still works) but **not**
-    from other machines. External access is intended to go through the reverse
-    proxy only. Because the loopback ports sit *behind* the proxy's auth gate,
-    treat host access to the box as privileged and firewall it accordingly.
-
 ### Core API services (FastAPI)
 
-| Service | Container | Port | Published on the host |
-|---|---|---|---|
-| API Gateway | `minder-api-gateway` | 8000 | Yes (`127.0.0.1`) |
-| Plugin Registry | `minder-plugin-registry` | 8001 | Only with `MINDER_DEV_PORTS=1` |
-| Platform Ops | `minder-platform-ops` | 8010 | Only with `MINDER_DEV_PORTS=1` |
-| Marketplace | `minder-marketplace` | 8002 | Only with `MINDER_DEV_PORTS=1` |
-| Orchestrator | `minder-orchestrator` | 8003 | Only with `MINDER_DEV_PORTS=1` |
-| RAG Pipeline | `minder-rag-pipeline` | 8004 | Only with `MINDER_DEV_PORTS=1` |
-| Model Management | `minder-model-management` | 8005 | Only with `MINDER_DEV_PORTS=1` |
-| TTS / STT | `minder-tts-stt` | 8006 | Only with the TTS/STT failover router |
-| Graph-RAG | `minder-graph-rag` | 8008 | Only with `MINDER_DEV_PORTS=1` |
-
-By default only the API Gateway (`8000`) and the web client (`8009`) publish a
-host port. The other core APIs are reached over the internal service network,
-and from outside only through the gateway, which applies auth and rate limits.
-To debug one service directly, set `MINDER_DEV_PORTS=1` in `.env` and run
-`bash setup.sh restart`; that publishes their ports on `127.0.0.1` as well.
-Platform Ops is the operational control plane (service discovery, bundles,
-container logs, backups); see the [API reference](api-reference.md).
-
-Each core API serves interactive docs at `/docs`.
+Host ports are loopback-bound: only the API Gateway (`8000`) and the web client
+(`8009`) publish one by default, and the other core APIs (Plugin Registry,
+Platform Ops, Marketplace, Orchestrator, RAG Pipeline, Model Management, TTS/STT,
+Graph-RAG) are reached through the gateway, which applies auth and rate limits.
+Treat host access to the box as privileged and firewall it accordingly. The full
+port table, `MINDER_DEV_PORTS=1` for direct debugging, and the reverse-proxy
+routes are in [Service access](service-access.md). Each core API serves
+interactive docs at `/docs`. Platform Ops is the operational control plane
+(service discovery, bundles, container logs, backups); see the
+[API reference](api-reference.md).
 
 ### Inference
 
@@ -312,7 +294,9 @@ a hardened, public-facing deployment:
 
 ## Related pages
 
-- [Self-hosting](self-hosting.md) — first-time install and capability bundles.
+- [Self-hosting](self-hosting.md) — first-time install.
+- [Capability bundles](bundles.md) — turning services on and off.
+- [Service access](service-access.md) — host ports, proxy routes and debugging access.
 - [AI setup](ai-setup.md) — inference modes and models.
 - [Authentication](authentication.md) — SSO, JWTs, roles, Traefik/Authelia.
 - [Transactional email](email.md) — SMTP, sender DNS, password-reset email.

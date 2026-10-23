@@ -29,9 +29,11 @@ are reviewed and validated before they merge, and why plugins get a
 least-privilege database role (their own `plugin_data` schema, no access to
 platform tables). A declarative [manifest](manifest.md) plugin runs no plugin
 code. See the [plugin trust model](../security.md#plugin-trust-model).
-First-party plugins ship inside the Minder core; wiring a running instance to
-also load this public catalog is a per-deployment integration step (git-submodule vendoring — the way the web
-client is already pulled in — is planned but not yet wired).
+
+First-party plugins ship inside the Minder core. Wiring a running instance to
+also load this public catalog is a per-deployment integration step;
+git-submodule vendoring, the way the web client is already pulled in, is planned
+but not yet wired.
 
 ## Governance
 

@@ -10,7 +10,7 @@ disagree, the product is what ships.
 
 !!! note "Proprietary core, open ecosystem"
     The Minder platform (core) is a commercial product, self-hostable with a
-    licence. Its **ecosystem is open source** — the plugin SDK, the plugin
+    license. Its **ecosystem is open source** — the plugin SDK, the plugin
     catalog, the CLI, and the web client. Run standalone, the self-hosted product
     is local-first and never phones home.
 
@@ -90,7 +90,7 @@ self-healing provisioning; loud, honest backups. See [Monitoring](monitoring.md)
 
 ### Security & multi-user
 
-JWT auth, licence fail-closed, Authelia SSO / 2FA enforced at the edge,
+JWT auth, license fail-closed, Authelia SSO / 2FA enforced at the edge,
 loopback-bound host ports, least-privilege plugin database credentials, and a per-deployment-generated
 admin credential rather than a shipped default. Role checks currently cover a
 specific set of admin-only actions; extending them across the rest of the write
@@ -120,10 +120,10 @@ in-flight. See [Authentication](authentication.md).
 The control-plane should feel like **one modern product**, not a set of service
 forms:
 
-- **Task-first, not endpoint-first.** Screens organised around what a user is
+- **Task-first, not endpoint-first.** Screens organized around what a user is
   trying to do (ingest a document, ask a question, turn on a capability), with the
   underlying services invisible.
-- **A cohesive design system.** One typographic scale, spacing rhythm, and colour
+- **A cohesive design system.** One typographic scale, spacing rhythm, and color
   system; consistent cards, buttons, empty / loading / error states; light **and**
   dark parity; accessible by default (labels, focus, `aria-live` status, keyboard
   paths).
