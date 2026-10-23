@@ -1,9 +1,18 @@
 # Manifest plugins
 
-For simple **`webhook → store-vector`** ingestion there's a separate, fully
-declarative mechanism: a YAML **manifest** that supplies *parameters only* — no
-code at all. Reach for it when you just need to pipe a webhook into the vector
-store; for anything richer, write a [module plugin](authoring.md).
+For simple ingestion there's a separate, fully declarative mechanism: a YAML
+**manifest** that supplies *parameters only* — no code at all. A manifest plugin
+pairs one trigger with one action:
+
+| Triggers | Actions |
+|----------|---------|
+| `webhook`: a signed inbound request (`secretRef` is required) | `store-vector`: embed text into a collection |
+| `schedule`: a five-field cron expression | `http-request`: a templated outbound HTTP call |
+| `poll`: a periodic HTTP GET | `plugin-action`: another installed plugin's declared action |
+
+Outbound URLs (`poll`, `http-request`) are checked at runtime: private, loopback,
+link-local and cloud-metadata addresses are refused, and redirects are
+re-checked. For anything richer, write a [module plugin](authoring.md).
 
 ## Example
 
@@ -41,6 +50,29 @@ validate_manifest(open("manifest.yaml").read())   # raises ManifestError if inva
 Or: `minder-plugin validate manifest.yaml`. The JSON Schema (draft-07) ships with
 the SDK. Install the optional `jsonschema` extra for full validation and `pyyaml`
 to parse YAML text.
+
+## Schemas
+
+The SDK's bundled schemas are the manifest contract; Minder validates against the
+same files. Each is published at its `$id`:
+
+| Manifest | Schema |
+|----------|--------|
+| Manifest plugin (one trigger, one action) | [`manifest.v1alpha1.json`](https://minderhq.github.io/docs/schemas/manifest.v1alpha1.json) |
+| Declarative connector (`spec.runtime.kind: declarative`) | [`declarative-manifest.v1alpha1.json`](https://minderhq.github.io/docs/schemas/declarative-manifest.v1alpha1.json) |
+
+A declarative connector describes HTTP tools, actions, a schedule and a signed
+webhook as data, and Minder's connector engine runs it. Its schema checks the
+structure. The engine also checks what JSON Schema cannot express when it loads
+the manifest, for example that every base URL's host is in the declared `egress`
+and that every JMESPath expression compiles. `validate_manifest` and
+`minder-plugin validate` pick the schema from `spec.runtime.kind`.
+
+Point an editor at a schema with a modeline in the YAML file:
+
+```yaml
+# yaml-language-server: $schema=https://minderhq.github.io/docs/schemas/manifest.v1alpha1.json
+```
 
 ### Fetch the schema live
 
