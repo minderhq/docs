@@ -36,7 +36,7 @@ LOG_LEVEL=INFO
 POSTGRES_PASSWORD=CHANGEME
 REDIS_PASSWORD=CHANGEME
 JWT_SECRET=CHANGEME
-INFLUXDB_TOKEN=CHANGEME
+INFLUXDB_ADMIN_TOKEN=apiv3_CHANGEME
 
 # Inference: empty = run the local Ollama container; set a URL = offload to a host
 OLLAMA_BASE_URL=
@@ -46,12 +46,12 @@ OLLAMA_MODELS=llama3.2,nomic-embed-text
 !!! warning "Never commit real secrets"
     Keep `./.env` out of version control. Use distinct credentials per
     environment and rotate them. See
-    [External services](external-services.md#best-practices) for the full
-    guidance on credentials and managed data backends.
+    [External services](external-services.md#credentials) and
+    [Security](security.md#secrets) for the full guidance on credentials.
 
 ## Deployment topology
 
-A full install defines on the order of three dozen containers (a couple are
+A full install defines about forty containers, including the plugin runners (a couple are
 failover-mode sidecars that stay inactive by default). Only the reverse proxy and
 the application/monitoring services below publish host ports; **all storage
 backends are internal-only**, reached over the `minder-network` Docker network or
@@ -94,15 +94,18 @@ interactive docs at `/docs`. Platform Ops is the operational control plane
 | RabbitMQ | `minder-rabbitmq` | Async message queue / hook bus |
 | Schema Registry | `minder-schema-registry` | Apicurio schema registry |
 
-Redis, PostgreSQL, and Qdrant can be pointed at managed cloud providers instead
-of the bundled containers — see [External services](external-services.md).
+These run as Minder's own containers. Only Ollama and the speech service can be
+pointed at an instance you run elsewhere — see
+[External services](external-services.md).
 
 ### Observability
 
 Prometheus, Grafana, Alertmanager, Jaeger, the OpenTelemetry Collector, InfluxDB,
-Telegraf, and a set of Prometheus exporters make up the monitoring stack. InfluxDB
-also publishes `127.0.0.1:8086` directly; the rest are internal or proxy-fronted.
-See [Monitoring](monitoring.md).
+Telegraf, and a set of Prometheus exporters make up the monitoring stack.
+Prometheus, Alertmanager, Grafana and the Collector's OTLP receivers publish
+loopback ports; the rest are internal or proxy-fronted. InfluxDB itself is on an
+internal network behind `timeseries-gateway`, and publishes no host port unless
+`MINDER_DEV_PORTS=1`. See [Monitoring](monitoring.md).
 
 ### Reverse proxy and auth
 
@@ -138,9 +141,10 @@ docker exec minder-ollama ollama list
 
 !!! note "\"no healthcheck\" is not \"unhealthy\""
     A few containers (`minder-otel-collector`, `minder-redis-exporter`,
-    `minder-rabbitmq-exporter`) have **no healthcheck by design**, because their
-    base images lack the tooling a probe would need. They show blank health in
-    `docker ps`; confirm them from their logs, not their health status. See
+    `minder-authelia`, `minder-docker-socket-proxy` and `minder-bundle-reconciler`)
+    have **no Docker healthcheck configured**. Some of their images lack the
+    tooling a probe would need. They show blank health in `docker ps`; confirm
+    them from their logs, not their health status. See
     [Troubleshooting](troubleshooting.md).
 
 ## Reverse proxy and TLS
@@ -187,12 +191,15 @@ bash setup.sh backup
 bash setup.sh restore
 ```
 
-Persistent state lives in Docker named volumes (`postgres_data`, `neo4j_data`,
-`qdrant_data`, `redis_data`, `rabbitmq_data`, `minio_data`, `ollama_data`,
-`influxdb_data`, …) and in MinIO buckets (including `backup-archives`). For
-production, establish and **test** a real retention policy with an off-device copy
-— the built-in commands snapshot state but do not, by themselves, ship it
-off-box.
+A backup is one archive, `backups/minder-<timestamp>.tar.gz`, in your Minder
+checkout, readable only by its owner (mode `600`). It holds your `.env`, a
+PostgreSQL dump (`pg_dumpall`), a Neo4j dump, the InfluxDB data directory, a
+Qdrant snapshot, the MinIO data directory and the RabbitMQ definitions. Redis (a
+cache) and the Ollama model volume are **not** included; models can be pulled
+again. Setup keeps the last 7 archives and deletes older ones. For production,
+establish and **test** a real retention policy with an off-device copy — the
+built-in commands write the archive on the same host and do not, by themselves,
+ship it off-box. See [Backup & restore](backup-restore.md).
 
 ## Upgrades
 
@@ -300,6 +307,6 @@ a hardened, public-facing deployment:
 - [AI setup](ai-setup.md) — inference modes and models.
 - [Authentication](authentication.md) — SSO, JWTs, roles, Traefik/Authelia.
 - [Transactional email](email.md) — SMTP, sender DNS, password-reset email.
-- [External services](external-services.md) — managed data backends.
+- [External services](external-services.md) — what can run elsewhere, and credentials.
 - [Remote access](remote-access.md) — reaching an instance beyond the LAN.
 - [Troubleshooting](troubleshooting.md) — diagnostics and common fixes.

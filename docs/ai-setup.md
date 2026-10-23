@@ -215,16 +215,22 @@ disable pulls), then `bash setup.sh restart`.
   control-plane UI ([Using Minder](using-minder.md#model-management-platform)).
 - **OpenWebUI** is the web chat frontend (reached via the reverse proxy). It
   auto-detects installed models — pick one from the dropdown and start chatting.
+- **Minder chat with tools** (`POST /v1/ai/chat/completions` with
+  `"minder_tools": true`) lets the model call plugin tools. A tool that changes
+  or sends data pauses until the user approves that exact call; see
+  [Tool approvals](api-reference.md#tool-approvals).
 
 ### Plugin tools in the chat UI
 
-Minder's read-only plugin tools (e.g. `get_crypto_price`, `get_weather`,
-`get_news`) are exposed as an OpenAPI tool server at
+Minder's plugin tools that only read (for example `get_crypto_price`,
+`get_weather`, `get_news`) are exposed as an OpenAPI tool server at
 `GET /v1/ai/tools/openapi.json` on the api-gateway — a standard Open WebUI
 extension point (**Settings → Admin → Tool Servers**, type `openapi`). The stack
-pre-registers it on first startup. Only read-only tools appear by design;
-mutating plugin actions stay authenticated and are never exposed as freely
-callable tools.
+pre-registers it on first startup. Only tools whose declared `effect` is `read`
+appear by design; a tool that writes, sends or deletes, or one with no declared
+effect, is never listed. If such a call does reach
+`POST /v1/ai/functions/{name}` directly, it needs a signed-in user and is held
+for approval (see [Tool approvals](api-reference.md#tool-approvals)).
 
 !!! note "Known upstream gap"
     Some Open WebUI versions only fully activate a pre-seeded tool-server

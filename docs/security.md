@@ -16,9 +16,37 @@ a deployment needs. For the login/SSO/JWT model in detail, see
 
 ### What's in place
 
-- **JWT authentication** at the API Gateway (HS256), with bcrypt-hashed
-  credentials and Redis-backed rate limiting (60-second window, **fail-open** —
-  if Redis is unreachable, requests are allowed rather than blocked).
+- **JWT authentication** at the API Gateway. The gateway signs access tokens
+  with **EdDSA** (an Ed25519 key pair that setup generates). Every other
+  service gets only the public key, so it can verify a token but never mint
+  one. Credentials are stored as bcrypt hashes. See
+  [Authentication](authentication.md#jwt-signing-and-keys).
+- **Redis-backed rate limiting** at the gateway, in 60-second windows:
+  anonymous callers per client IP, signed-in callers per IP and user (a higher
+  limit), and the login and register routes per IP only. It is **fail-open**:
+  if Redis is unreachable, requests are allowed rather than blocked. The limits
+  are `RATE_LIMIT_PER_MINUTE` (60), `RATE_LIMIT_AUTHENTICATED_PER_MINUTE` (300)
+  and `RATE_LIMIT_STATUS_POLL_PER_MINUTE` (600, document upload status polls).
+- **Service-to-service identity.** A service that calls another service's
+  internal routes signs a short-lived token with **its own** Ed25519 key, and
+  each internal route accepts only the callers on its allowlist. There is no
+  shared service token. A service whose keys are missing logs an error at
+  startup and its service calls are refused (`401`), so run setup after an
+  upgrade.
+- **Security response headers, on by default.** The gateway adds
+  `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`,
+  `X-Frame-Options: DENY` with `Content-Security-Policy: frame-ancestors 'none'`
+  (the anonymous public-chat paths are the exception: their `frame-ancestors`
+  is the endpoint's own allowed origins), and `Cache-Control: no-store` on
+  auth and invite-token responses. It adds `Strict-Transport-Security` only
+  when the request arrived over TLS, directly or through a trusted proxy. A
+  header a route already set is never replaced, and error and `429`
+  responses carry the headers too. The web client's own server adds its
+  headers (including a Content-Security-Policy) in the same way. Settings, all
+  in the root `.env`: `SECURITY_HEADERS_ENABLED` (default `true`),
+  `SECURITY_HEADERS_REFERRER_POLICY`, `SECURITY_HEADERS_HSTS`,
+  `CLIENT_SECURITY_HEADERS` (`on` by default; set `off` only when your own
+  reverse proxy sets them) and `CLIENT_CSP`.
 - **Authelia SSO / OIDC** — enabled and enforcing forward-auth on the gated
   routers, and a real OIDC identity provider that mints the Minder JWT from a
   verified Authelia identity. See [Authentication](authentication.md).
@@ -34,50 +62,76 @@ a deployment needs. For the login/SSO/JWT model in detail, see
 - **Least-privilege Docker access** — services that need the Docker Engine API
   (bundle enable/disable, container logs) go through a proxy with an explicit
   allowlist of paths and methods, never a raw `docker.sock` mount.
-- **Least-privilege plugin database role** — plugins get their own Postgres
-  role confined to a `plugin_data` schema, with no access to the platform's
-  tables. See [Plugin trust model](#plugin-trust-model) below for what that does
-  and doesn't cover.
+- **Out-of-process plugins.** Plugin code runs in separate `plugin-runner`
+  containers, not in the plugin registry, with no platform secrets in their
+  environment. Each plugin that needs a database gets its own least-privilege
+  Postgres role. See [Plugin trust model](#plugin-trust-model).
 
 ### Plugin trust model
 
-Plugins come in two kinds, and they are trusted differently:
+Plugins run **out of process**. The plugin registry keeps every policy decision
+(who may call what, admin-only actions, tier checks, scheduling, config,
+secrets) and calls a **plugin-runner** container only after those checks. The
+registry image contains no plugin code: it parses a read-only copy of the
+catalog and never imports it.
 
-- **Manifest plugins** are declarative YAML that supplies parameters only (for
-  example webhook → store-vector). No plugin code runs. The platform executes its
-  own built-in trigger and action for them. See [Manifest plugins](plugins/manifest.md).
-- **Module (code) plugins** are Python classes (`register()` / `PluginBase`, the
-  default shape in the plugin template). The plugin registry imports them and
-  runs them **in-process**, in the registry's own Python process. This is
-  arbitrary code: a module plugin has the same reach as the registry process
-  itself (its memory, environment, filesystem and network). It is **not
-  sandboxed**.
+Runners are grouped by how much they are trusted:
 
-What limits a module plugin today:
+| Group | Hosts | How it reaches the network |
+|-------|-------|----------------------------|
+| `declarative` | Declarative (T0) manifest plugins only. No plugin code runs. | Direct, but only to the public hosts each manifest declares. The engine checks every hop, refuses any non-public address and pins the connection to the address it checked. |
+| `trusted` | Catalog code plugins that only need public HTTP(S). | Through an egress proxy only. The runner sits on internal Docker networks with no route out. |
+| `privileged` | Plugins that need LAN access or manage a sidecar (today `network` and `telegraf`). | Direct LAN and internet access under firewall rules in its own network namespace. These block cloud metadata and link-local addresses, the Docker host's networks and gateways, and anything listed in `EGRESS_PROXY_DENY_CIDRS`. |
 
-- **Scoped database credentials.** The `database` handle a plugin receives
-  connects as the `minder_plugins` role. That role can only use its own
-  `plugin_data` schema and has no privilege on the platform's tables. Plugins
-  never get the owner credentials; without `DB_PLUGIN_PASSWORD` they get no
-  database handle at all. This scopes the handle the platform gives a plugin,
-  not the process it runs in.
-- **Shared Redis and InfluxDB credentials.** The `redis` and `influxdb` handles
-  still carry the platform's shared credentials. They are not scoped per plugin
-  yet.
-- **Review before it ships.** Catalog plugins arrive as pull requests to the
-  public [plugins](https://github.com/minderhq/plugins) repo. They are reviewed,
-  and CI runs `minder-plugin validate` and a contract suite on each one.
-  Submitted marketplace listings go through an admin review workflow before
-  they're publicly visible (first-party listings are pre-approved). See [Publishing](plugins/publishing.md).
+Every runner runs with a read-only root filesystem, no Linux capabilities,
+`no-new-privileges`, and **no** `env_file` or platform secret in its
+environment. Its API listens only on an internal control network, and it
+accepts only requests carrying a short-lived, single-use token that
+plugin-registry signs for that specific group. A runner that has no
+registry public key refuses every request.
 
-Treat installing a module plugin like installing any Python package into the
-platform: only install plugins you have reviewed or trust. Stronger isolation for
-code plugins is being worked on and is not shipped.
+A plugin gets only what the platform grants it, through the platform context
+(`self.ctx`): its own secrets, calls to plugins it declares a dependency on,
+document indexing on behalf of the invoking user, and the time-series and
+sidecar capabilities it declared. The registry checks the grant on every call.
+What a plugin receives at load is limited to:
+
+- **A scoped database role.** `database` connects as a role of the form
+  `minder_plugins_<plugin>`, confined to that plugin's own `plugin_<plugin>`
+  schema, with no privilege on the platform's tables or on another plugin's
+  schema. Without `DB_PLUGIN_PASSWORD` a plugin gets no database handle at all.
+- **No Redis, InfluxDB, Neo4j or RabbitMQ handle.** Time-series data goes
+  through the registry's time-series capability and `timeseries-gateway`, the
+  only process that holds the InfluxDB admin token. A plugin that used to write
+  to Neo4j or RabbitMQ directly (the `network` plugin) has those sinks off in a
+  runner.
+
+!!! warning "Isolation is not complete"
+    Plugin code in the `trusted` and `privileged` groups is still arbitrary
+    Python inside its container. The in-process egress guard in the runner is a
+    backstop for honest plugins, not a boundary: the boundary is the network
+    layer around it. Per-plugin egress allowlists for community code are
+    not shipped. List your host's own public and
+    LAN addresses in `EGRESS_PROXY_DENY_CIDRS`, because the runner cannot
+    discover addresses the Docker host has on its other interfaces.
+
+Catalog plugins arrive as pull requests to the public
+[plugins](https://github.com/minderhq/plugins) repo. They are reviewed, and CI
+runs `minder-plugin validate` and a contract suite on each one. Submitted
+marketplace listings go through an admin review workflow before they're
+publicly visible (first-party listings are pre-approved). See
+[Publishing](plugins/publishing.md).
+
+**Tool effects and approvals.** Plugins declare an `effect` on each AI tool:
+`read`, `write`, `send` or `destructive`. In tool-calling chat, `read` tools
+run straight away. Any other tool, or a tool with no declared or unknown
+effect, pauses until the user approves that exact call. See
+[Tool approvals](api-reference.md#tool-approvals).
 
 ### What's *not* in place (don't assume)
 
-- **Plugin sandboxing.** Module plugins run in-process in the plugin registry.
-  The scoped database role limits their database handle, not the process. See
+- **Complete plugin sandboxing.** Plugins run in separate runner containers,
+  but code plugins are not run in a per-plugin sandbox. See
   [Plugin trust model](#plugin-trust-model).
 - **RBAC is partial.** A user's `role` is checked on a specific set of admin-only
   actions (model pull/delete, bundle enable/disable/reconcile, plugin lifecycle
@@ -102,7 +156,7 @@ The placeholders shipped in `.env.example` are, for example:
 POSTGRES_PASSWORD=CHANGEME_POSTGRES_SECRET_32_CHARS
 REDIS_PASSWORD=CHANGEME_REDIS_SECRET_32_CHARS
 JWT_SECRET=CHANGEME_JWT_SECRET_MINIMUM_64_CHARS_RECOMMENDED
-INFLUXDB_TOKEN=CHANGEME_INFLUXDB_SECRET_40_CHARS
+NEO4J_AUTH=neo4j/CHANGEME_NEO4J_PASSWORD_16_CHARS
 ```
 
 Only set your own value if you want a specific one. A value you supply must have
@@ -127,24 +181,32 @@ the generated value: lowercase hex, two characters per random byte.
 |--------|--------|----------|
 | `POSTGRES_PASSWORD` | 64 hex | PostgreSQL owner role `minder` (migrations, schema) |
 | `DB_APP_PASSWORD` | 64 hex | Non-superuser runtime role `minder_app`. Each service's query pool connects as it, which is what makes row-level security apply |
-| `DB_PLUGIN_PASSWORD` | 64 hex | Least-privilege role `minder_plugins` that in-process plugins connect as. It is confined to the `plugin_data` schema and has no access to platform tables |
+| `DB_PLUGIN_PASSWORD` | 64 hex | Base secret for the per-plugin least-privilege roles (`minder_plugins_<plugin>`). The registry derives each role's password from it and creates the role when the plugin loads. Each role is confined to its own `plugin_<plugin>` schema |
+| `OPENWEBUI_DB_PASSWORD` | 64 hex | Open WebUI's own database role, which owns the `openwebui` database only |
 | `REDIS_PASSWORD` | 64 hex | Redis |
 | `RABBITMQ_PASSWORD` | 64 hex | RabbitMQ |
 | `MINIO_ROOT_PASSWORD` | 64 hex | MinIO root user |
-| `JWT_SECRET` | 128 hex | Signs Minder JWTs |
+| `JWT_SECRET` | 128 hex | Legacy HS256 signing key. Only the API Gateway receives it, and only to accept sessions that predate the EdDSA upgrade during a bounded window. No other service holds it. See [JWT signing and keys](authentication.md#jwt-signing-and-keys) |
+| `JWT_SIGNING_PRIVATE_KEY`, `JWT_PUBLIC_KEYS` | Ed25519 key (base64 PEM) | The gateway's EdDSA signing key and the list of public keys every service verifies with. Setup generates both. Only the gateway receives the private key |
+| `SERVICE_SIGNING_KEY_<SERVICE>` | Ed25519 key | One signing key per service that calls another service's internal routes. Each is given to its own service only. `SERVICE_PUBLIC_KEYS` carries every public half |
+| `PLUGIN_T4_SIGNING_KEY` | base64 Ed25519 seed | The key plugin-registry signs its calls to remote plugins with. The public half is published at `/.well-known/minder/plugin-jwks.json` |
 | `MODEL_PROVIDER_VAULT_SECRET` | 128 hex | Encrypts stored cloud-provider API keys. **Never clear it**, see [below](#vault-and-license-secrets-never-clear) |
 | `PLUGIN_SECRETS_VAULT_SECRET` | 128 hex | Encrypts per-plugin connector secrets. **Never clear it** |
 | `LICENSE_KEY_VAULT_SECRET` | 128 hex | Encrypts license keys at rest. **Never clear it** |
 | `LICENSE_KEY_HASH_SECRET` | 128 hex | Keys the license-key lookup hash. **Must never change** |
 | `NEO4J_AUTH` | `neo4j/` + 32 hex | Neo4j |
-| `INFLUXDB_TOKEN` | 80 hex | InfluxDB |
+| `INFLUXDB_ADMIN_TOKEN` | `apiv3_` + 64 hex | InfluxDB's admin token. Only `timeseries-gateway` and InfluxDB receive it. **Never regenerated**: InfluxDB reads it once |
+| `TIMESERIES_TOKEN_TELEGRAF`, `TIMESERIES_TOKEN_GRAPH_RAG`, `TIMESERIES_TOKEN_PLUGIN_REGISTRY` | 64 hex | One `timeseries-gateway` credential per consumer. Each is given to that consumer only |
 | `AUTHELIA_STORAGE_ENCRYPTION_KEY` | 64 hex | Encrypts Authelia's own storage. **Never clear it** |
 | `AUTHELIA_SESSION_SECRET`, `AUTHELIA_IDENTITY_VALIDATION_RESET_PASSWORD_JWT_SECRET`, `AUTHELIA_IDENTITY_PROVIDERS_OIDC_HMAC_SECRET` | 64 hex | Authelia sessions, password-reset links, OIDC tokens |
 | `MINDER_OIDC_CLIENT_SECRET` | 64 hex | API Gateway's OIDC client secret with Authelia |
 | `MINDER_AUTHELIA_ADMIN_PASSWORD` | 64 hex (or your own) | Authelia `admin` login, printed once when generated |
 | `GRAFANA_PASSWORD` | 64 hex | Grafana admin |
 | `WEBUI_SECRET_KEY` | 64 hex | Open WebUI session signing |
-| `SERVICE_SYNC_TOKEN` | 64 hex | Internal service-to-service token (plugin AI-tool catalog sync) |
+
+Older installs may still have `INFLUXDB_TOKEN`, `SERVICE_SYNC_TOKEN` or
+`SERVICE_SYNC_TOKEN_ON_MIGRATED_ROUTES` in `.env`. Nothing reads them any more,
+and setup removes those lines (after saving the usual backup).
 
 Without `DB_PLUGIN_PASSWORD`, plugins get **no** database handle at all (fail
 closed). They never fall back to the owner credentials, and the plugin registry
@@ -153,12 +215,14 @@ logs an error at startup.
 ### A new secret appeared after an upgrade
 
 Releases sometimes add a secret to the list above (for example,
-`DB_PLUGIN_PASSWORD`). `setup.sh` fills missing secrets on `install`/`start`.
-To avoid desyncing live services, it **refuses** to generate secrets while the
-stack is running, with one exception: a brand-new secret that its service
-re-applies from `.env` on every boot. `DB_PLUGIN_PASSWORD` is one of these, and
-setup adds it automatically even on a running stack, as long as the key is
-absent from `.env`.
+`DB_PLUGIN_PASSWORD` or the `TIMESERIES_TOKEN_*` credentials). `setup.sh` fills
+missing secrets on `install`/`start`. To avoid desyncing live services, it
+**refuses** to generate secrets while the stack is running, with one exception:
+a brand-new secret whose service re-applies it from `.env` on every boot.
+`DB_PLUGIN_PASSWORD`, `OPENWEBUI_DB_PASSWORD`, the `TIMESERIES_TOKEN_*`
+credentials and `INFLUXDB_ADMIN_TOKEN` are of this kind, and setup adds them
+automatically even on a running stack, as long as the key is absent from
+`.env`. The JWT and service signing keys are also filled on a live stack.
 
 For any other new secret, or if the key is present but empty or a placeholder,
 setup stops with `Refusing to regenerate .env secrets`. Either:
@@ -205,7 +269,7 @@ Before setup regenerates any secret, it saves the current file as
 
 These can be rotated by clearing them and letting setup generate new values:
 
-1. **Clear the keys to rotate** in the root `.env`, for example `JWT_SECRET=`.
+1. **Clear the keys to rotate** in the root `.env`, for example `REDIS_PASSWORD=`.
 2. **Apply with the stack stopped.** Setup refuses to regenerate secrets while
    the stack is running.
    ```bash
@@ -217,17 +281,30 @@ These can be rotated by clearing them and letting setup generate new values:
 
     | Secret | How the new value takes effect |
     |--------|--------------------------------|
-    | `JWT_SECRET` | Picked up on restart. All existing tokens become invalid, so users sign in again |
+    | `JWT_SECRET` | Only the legacy HS256 key, which the gateway uses just to honour sessions from before the EdDSA upgrade. Rotating it ends those sessions. To rotate the key that signs current tokens, see [Signing key rotation](#signing-key-rotation) |
     | `REDIS_PASSWORD`, `MINIO_ROOT_PASSWORD` | Picked up when the container is recreated on start |
-    | `DB_APP_PASSWORD`, `DB_PLUGIN_PASSWORD` | Picked up on start: the services re-apply the `minder_app` and `minder_plugins` role passwords from `.env` on every boot. No manual step needed |
-    | `POSTGRES_PASSWORD` | Run `bash setup.sh sync-postgres-password` once the stack is up. It runs `ALTER USER minder`, so the live database matches `.env`. It only updates the `minder` owner role; the two roles above sync themselves |
-    | `RABBITMQ_PASSWORD`, `NEO4J_AUTH`, `INFLUXDB_TOKEN`, `GRAFANA_PASSWORD` | Saved in the service's data volume at first initialization. Setup has no sync command for these, so change the password inside the service with its own tooling, then put the same value in `.env`. Don't regenerate them blindly |
+    | `DB_APP_PASSWORD`, `DB_PLUGIN_PASSWORD` | Picked up on start: the services re-apply the `minder_app` role password, and each per-plugin role's derived password, from `.env` on every boot. No manual step needed |
+    | `POSTGRES_PASSWORD` | Run `bash setup.sh sync-postgres-password` once the stack is up. It runs `ALTER USER minder`, so the live database matches `.env`. It only updates the `minder` owner role; the roles above sync themselves |
+    | `RABBITMQ_PASSWORD`, `NEO4J_AUTH`, `GRAFANA_PASSWORD` | Saved in the service's data volume at first initialization. Setup has no sync command for these, so change the password inside the service with its own tooling, then put the same value in `.env`. Don't regenerate them blindly |
+    | `TIMESERIES_TOKEN_*` | Picked up on start. `INFLUXDB_ADMIN_TOKEN` is the exception: InfluxDB reads it once, so setup never regenerates it |
 
 4. **Verify:**
    ```bash
    bash setup.sh status
    curl http://localhost:8000/health
    ```
+
+### Signing key rotation
+
+The gateway's EdDSA key and the per-service keys are not hex secrets, so
+clearing them is not how you rotate them:
+
+- **JWT signing key.** Add the new public key to `JWT_PUBLIC_KEYS`
+  (comma-separated, and keep the old one), restart, then replace
+  `JWT_SIGNING_PRIVATE_KEY` with the matching new private key and restart
+  again. Tokens signed with the old key stay valid until they expire.
+- **Service signing keys.** Delete the `SERVICE_SIGNING_KEY_<SERVICE>` line,
+  run setup again, and restart. Upgrade every service together.
 
 ### Vault and license secrets (never clear)
 
@@ -319,7 +396,7 @@ forward-looking, not built in:
       POSTGRES_PASSWORD: CHANGEME
       REDIS_PASSWORD: CHANGEME
       JWT_SECRET: CHANGEME
-      INFLUXDB_TOKEN: CHANGEME
+      INFLUXDB_ADMIN_TOKEN: apiv3_CHANGEME
     ```
 
 ## Production hardening checklist
@@ -362,8 +439,9 @@ bash setup.sh status
   `.env` have diverged; run `bash setup.sh sync-postgres-password`.
 - **"WRONGPASS" (Redis)** — `REDIS_PASSWORD` in `.env` doesn't match what Redis is
   running with; restart Redis after fixing it.
-- **401 on API requests** — confirm `JWT_SECRET` is consistent across services and
-  the token hasn't expired. See [Authentication](authentication.md).
+- **401 on API requests** — confirm the token hasn't expired, and that every
+  service has the same `JWT_PUBLIC_KEYS` (setup writes it). A service that has
+  none refuses EdDSA tokens. See [Authentication](authentication.md).
 
 More diagnostics are in [Troubleshooting](troubleshooting.md).
 

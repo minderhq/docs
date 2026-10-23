@@ -140,7 +140,7 @@ If you want throughput numbers, generate them against your own deployment with a
 tool like [Locust](https://locust.io/) — and remember the LLM is usually the
 limiting factor, so test the RAG / query paths realistically with the model you
 actually run. Write a small `locustfile.py` that exercises your real endpoints
-(for example `POST /pipeline/{id}/query`), then:
+(for example `POST /v1/rag/pipeline/{id}/query` through the gateway), then:
 
 ```bash
 pip install locust

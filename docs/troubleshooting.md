@@ -52,12 +52,14 @@ lsof -i :8000
 
 ## A service shows "no-healthcheck" — is it broken?
 
-Usually **no**. A few containers have **no healthcheck by design**, because their
-base images lack the tooling a health probe would need:
+Usually **no**. A few containers have **no Docker healthcheck configured**, and
+some of their images lack the tooling a health probe would need:
 
 - `minder-otel-collector`
 - `minder-redis-exporter`
-- `minder-rabbitmq-exporter`
+- `minder-authelia`
+- `minder-docker-socket-proxy`
+- `minder-bundle-reconciler`
 
 `docker ps` shows these with no health status. That is expected — it is not an
 "unhealthy" state. Confirm they are working from their logs, not their health:
@@ -65,7 +67,7 @@ base images lack the tooling a health probe would need:
 ```bash
 docker logs minder-otel-collector --tail 30
 docker logs minder-redis-exporter --tail 30
-docker logs minder-rabbitmq-exporter --tail 30
+docker logs minder-authelia --tail 30
 ```
 
 ## Database issues
@@ -135,18 +137,17 @@ graph-RAG (knowledge graph).
 # Wait for it to finish starting
 docker logs minder-neo4j --tail 50 | grep -i "started\|remote interface"
 
-# Test a query
+# Test a query (NEO4J_AUTH in .env is "neo4j/<password>")
+NEO4J_PASSWORD=$(grep '^NEO4J_AUTH=' .env | cut -d= -f2- | sed 's#^neo4j/##')
 docker exec minder-neo4j cypher-shell -u neo4j -p "$NEO4J_PASSWORD" "RETURN 1;"
-
-# Check the password
-grep NEO4J .env
 ```
 
 ## Plugin not loading
 
-The first-party module plugins ship with the platform and are loaded from disk on
-startup, so a clean install already lists them — the plugin list should not be
-empty. See [Plugins](plugins/index.md) for the plugin model, and the
+The catalog's plugins ship with the platform. The plugin registry reads its
+catalog copy on startup and asks a `plugin-runner` container to load each plugin,
+so a clean install already lists them — the plugin list should not be empty. See
+[Plugins](plugins/index.md) for the plugin model, and the
 [plugin trust model](security.md#plugin-trust-model) for how plugins are isolated.
 
 ```bash
@@ -154,9 +155,27 @@ empty. See [Plugins](plugins/index.md) for the plugin model, and the
 docker exec minder-api-gateway curl -s http://minder-plugin-registry:8001/health
 curl http://localhost:8000/v1/plugins
 
-# Registry logs
+# Registry and runner logs
 docker logs minder-plugin-registry --tail 50
+docker ps --filter name=minder-plugin-runner
+docker logs minder-plugin-runner-trusted --tail 50
 ```
+
+Things to check when a plugin is missing or unhealthy:
+
+- **Runner containers.** There is one per group (`trusted`, `privileged`,
+  `declarative`). A plugin whose runner is down is not loaded. The registry
+  reloads a runner's plugins when it sees the runner restarted.
+- **Runner authentication.** A runner started without
+  `PLUGIN_REGISTRY_PUBLIC_KEY` still answers its health probes but reports
+  `auth: "unconfigured"` (or `"invalid"`) and refuses every other request. Run
+  `bash setup.sh start` so setup provisions the key.
+- **A plugin that needs LAN access** (`network`, `telegraf`) runs in the
+  `privileged` group, which depends on a firewall container. If the host can't
+  load the rules the runner still starts, and reports
+  `network_firewall: {"enforced": false}` in its health.
+- **No database handle.** Without `DB_PLUGIN_PASSWORD` a plugin gets no database
+  handle at all. Run setup to generate it.
 
 ## Memory / resource pressure
 

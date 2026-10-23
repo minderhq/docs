@@ -49,7 +49,7 @@ as degraded. An organization admin should then fix the default.
 |---|---|---|
 | Single machine, no GPU tuning wanted | Bundled Ollama | [Bundled Ollama](#option-1-bundled-ollama-default) |
 | Ollama already installed on the same machine (common on Windows/macOS with a GPU) | Your own Ollama as the install backend | [Your Ollama on the same machine](#option-2-your-ollama-on-the-same-machine) |
-| A separate GPU box on your LAN or tailnet | Remote Ollama as install backend, or as an org provider | [Ollama on another machine](#option-3-ollama-on-another-machine) |
+| A separate GPU box on your LAN or private VPN | Remote Ollama as install backend, or as an org provider | [Ollama on another machine](#option-3-ollama-on-another-machine) |
 | High-throughput serving, many users | vLLM as an org provider; embeddings stay on Ollama | [vLLM](#option-4-vllm) |
 | LM Studio, llama.cpp server, TGI, LocalAI | OpenAI-compatible provider | [Other OpenAI-compatible servers](#option-5-other-openai-compatible-servers) |
 | OpenAI, Anthropic, OpenRouter, z.ai GLM | Cloud provider | [Cloud providers](#option-6-cloud-providers) |
@@ -168,8 +168,11 @@ There are two ways to use a separate GPU box, and they can be combined:
   Ollama (self-hosted)*. Enter `http://192.168.1.50:11434`. Leave the API key
   empty unless your Ollama sits behind an authenticating proxy.
 
-Tailscale and other tailnet addresses (`100.x.y.z`, `*.ts.net`) are accepted
-for self-hosted providers, as long as the Docker host itself is on the tailnet.
+Private-network and VPN addresses (for example `100.x.y.z` carrier-grade NAT
+addresses) are accepted for self-hosted providers, as long as the Docker host
+itself can reach them. Loopback and cloud-metadata addresses are always refused.
+Self-hosted providers are refused entirely on a multi-tenant deployment
+(`SAAS_MODE=true`), where every provider URL must be a public endpoint.
 
 ## Option 4: vLLM
 
@@ -201,7 +204,7 @@ docker run --gpus all -p 8000:8000 --ipc=host vllm/vllm-openai:latest \
 | Field | Value |
 |---|---|
 | Base URL | `http://<host>:8000/v1`. Include `/v1`. Use the LAN IP or `host.docker.internal`, never `localhost` or `127.0.0.1` (always refused). |
-| API key | Your `--api-key`, or any non-empty value if you didn't set one |
+| API key | Your `--api-key`. Leave it empty if you didn't set one: the provider is saved without a key and Minder sends no `Authorization` header |
 | Models | Click **Fetch models**, tick the ones you want, then **save**. A model only appears in pickers once it is saved on the provider. |
 
 Then click **Test**. It sends one short prompt; it doesn't check tool support.
@@ -226,9 +229,11 @@ an OpenAI-compatible `/v1` API, so they work like vLLM:
 
 - Enable network serving in the tool (for example LM Studio's *Serve on local
   network*). Note the base URL, which ends in `/v1`.
-- Add the server with the **vLLM (self-hosted)** preset, with your server's
-  URL, if it runs on your own hardware. That preset is the one marked *local*.
-  The generic *OpenAI-compatible (custom)* preset is treated as a cloud
+- Add the server with its self-hosted preset: **LM Studio (self-hosted)**,
+  **llama.cpp server (self-hosted)** or **TGI (self-hosted)**. For any other
+  server on your own hardware (LocalAI, for example), use **vLLM
+  (self-hosted)**. These presets are marked *local*, with the same rules as
+  vLLM. The generic *OpenAI-compatible (custom)* preset is treated as a cloud
   provider, which refuses private addresses and applies PII masking.
 - Click **Fetch models**. If the server has no model list (HTTP 404), type the
   model id exactly as the server expects it.
@@ -321,9 +326,9 @@ runs Docker is capped in `%UserProfile%\.wslconfig` (`memory=`). Setting
 ## Who can change these settings
 
 - **Default models:** an organization's owners and admins.
-- **Providers:** the client currently shows the provider list only to
-  **Platform Admins**. The API also accepts organization owners and admins.
-  The client will follow.
+- **Providers:** the client's *Providers & defaults* page is shown to members who
+  hold the `org.ai.manage` permission. The API accepts the instance `admin` role
+  or an organization `owner`/`admin`.
 - **Install backend** (`ollama-mode`, `model-tier`): whoever runs `setup.sh`
   on the host.
 

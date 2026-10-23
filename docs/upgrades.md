@@ -88,8 +88,9 @@ docker ps --format "table {{.Names}}\t{{.Status}}"
 ```
 
 !!! note "\"no healthcheck\" is not \"unhealthy\""
-    `minder-otel-collector`, `minder-redis-exporter`, and `minder-rabbitmq-exporter`
-    have **no healthcheck by design** — they show blank health in `docker ps`, which
+    A few containers (`minder-otel-collector`, `minder-redis-exporter`,
+    `minder-authelia`, `minder-docker-socket-proxy` and `minder-bundle-reconciler`)
+    have **no Docker healthcheck configured** — they show blank health in `docker ps`, which
     is expected. Confirm them from their logs, not their health status. See
     [Troubleshooting](troubleshooting.md).
 
@@ -147,10 +148,9 @@ bash setup.sh start
 ```
 
 Backups are produced by `bash setup.sh backup` and restored by
-`bash setup.sh restore`. Persistent state lives in Docker named volumes and in
-object-store buckets (including `backup-archives`); see
-[Production](production.md#backups) for what is captured and the retention guidance
-you should layer on top.
+`bash setup.sh restore`; see [Production](production.md#backups) and
+[Backup & restore](backup-restore.md) for what is captured and the retention
+guidance you should layer on top.
 
 ## Per-image caveats
 
@@ -165,9 +165,8 @@ treat a major Postgres bump as a standard image upgrade.
 Other stateful stores (Redis, Qdrant, Neo4j, MinIO, RabbitMQ) are generally safe
 in-place across minor versions. Before any **major** bump of a stateful store, check
 that upstream keeps the on-disk format compatible; if not, plan a backup-and-restore
-the same way. When pointing Minder at a managed provider instead of the bundled
-container, follow that provider's own upgrade path — see
-[External services](external-services.md).
+the same way. If you run Ollama or the speech service on another host, upgrade
+that host on its own — see [External services](external-services.md).
 
 ### CPU architecture
 
@@ -180,7 +179,7 @@ inference to a larger external host, see [AI setup](ai-setup.md).
 
 ## Success criteria
 
-- [ ] All containers `healthy` (or "no healthcheck" for the three by-design
+- [ ] All containers `healthy` (or "no healthcheck" for the by-design
       exceptions); none stuck `restarting`.
 - [ ] Core API and monitoring health checks pass.
 - [ ] Database data intact (row counts match pre-upgrade for key tables).

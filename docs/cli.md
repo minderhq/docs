@@ -18,9 +18,28 @@ pip install "git+https://github.com/minderhq/cli"
 minder login --api-url http://localhost:8000   # prompts, caches a JWT
 ```
 
+`minder login` signs in with a **local** username and password
+(`POST /v1/auth/login`; `-u`/`-p` skip the prompts). An account that exists only
+through SSO has no local password, so `minder login` can't sign it in.
+
 Config resolves as **flag → env (`MINDER_API_URL` / `MINDER_TOKEN`) →
 `~/.config/minder/config.json` → default** (`http://localhost:8000`). Once
 you've logged in, later commands need no flags.
+
+### Token refresh
+
+Access tokens are short-lived (15 minutes by default, the gateway's
+`JWT_EXPIRATION_MINUTES`). The CLI renews them transparently through
+`POST /v1/auth/refresh`: shortly before the token expires, or once after a
+`401`. A refreshed token is written back to the same config file; a `--token` or
+`MINDER_TOKEN` override is refreshed for that run only.
+
+The gateway accepts a recently expired token for refresh within
+`JWT_REFRESH_GRACE_MINUTES` (12 hours by default), up to an absolute session cap
+counted from sign-in, `JWT_SESSION_MAX_HOURS` (24 hours by default). After the
+cap, or when the session was revoked (password change or reset, role demotion,
+deactivation), the CLI prints ``please run `minder login` again``. See
+[Authentication](authentication.md#token-lifetime-and-sessions).
 
 ## Use
 
