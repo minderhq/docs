@@ -13,5 +13,4 @@ Content lives in `docs/`. The nav is defined in `mkdocs.yml`. CI builds `--stric
 on every PR and deploys `main` to GitHub Pages.
 
 > Covers self-hosting, day-to-day use, operations, the HTTP API, the CLI, and the
-> plugin ecosystem. Architecture **decision records** live in the private
-> `minderhq/adrs` repo, not here.
+> plugin ecosystem.

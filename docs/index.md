@@ -62,5 +62,4 @@ plugin catalog, and the web client, all freely available.
 
 !!! note
     This site covers self-hosting, day-to-day use, operations, the HTTP API, the
-    CLI, and the plugin ecosystem. Architecture **decision records** live in the
-    private `minderhq/adrs` repo rather than here.
+    CLI, and the plugin ecosystem.

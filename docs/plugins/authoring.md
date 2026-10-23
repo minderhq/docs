@@ -26,7 +26,7 @@ class MyPlugin(PluginBase):
         )
 
     async def collect_data(self) -> dict:
-        self._last = {"value": 42}   # TODO: a real fetch (add httpx to your deps)
+        self._last = {"value": 42}   # replace with a real fetch (add httpx to your deps)
         return self._last
 ```
 

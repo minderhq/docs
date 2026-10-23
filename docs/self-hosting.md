@@ -56,8 +56,8 @@ before the install.
 Then install:
 
 ```bash
-# Requires licensed access to the private minderhq/minder repo + images.
-git clone https://github.com/minderhq/minder.git
+# Requires licensed access: the repository and images come with your license.
+git clone <your-licensed-repository-url> minder
 cd minder
 bash setup.sh install --profile standard   # minimal | standard | full
 ```
@@ -170,17 +170,10 @@ reset, configure an SMTP relay: [Transactional email](email.md).
 
 ## Capability bundles
 
-You turn capabilities on and off as units — not by editing compose files:
-
-```bash
-./setup.sh bundle status                            # bundles + their services
-./setup.sh bundle enable rag                         # bring a bundle up
-./setup.sh bundle disable monitoring --stop-orphans  # take one down + its services
-```
-
-`core` is the always-on kernel; `rag`, `graph-rag`, `inference`, `chat`,
-`voice`, and `monitoring` layer on top. A service runs only while a bundle that
-claims it is enabled.
+You turn capabilities on and off as units, not by editing Compose files. `core`
+is the always-on kernel; `rag`, `graph-rag`, `inference`, `chat`, `voice` and
+`monitoring` layer on top. See [Capability bundles](bundles.md) for the commands
+and how services are claimed.
 
 ## Check it is up
 
@@ -203,6 +196,8 @@ git pull
 bash setup.sh update      # rebuild + rolling restart
 bash setup.sh verify --deep
 ```
+
+See [Upgrading](upgrades.md) for the full procedure, checks and rollback.
 
 ## Manage it
 
