@@ -54,7 +54,7 @@ database outbox, so no request ever waits on SMTP.
 
 ## 2. Choose a backend
 
-| `EMAIL_BACKEND` | Use it for | Behaviour |
+| `EMAIL_BACKEND` | Use it for | Behavior |
 |-----------------|------------|-----------|
 | `none` (default) | Installs without email | Nothing is sent. The reset routes are not mounted (`404`), and **Forgot password?** is hidden. |
 | `smtp` | **Production** | Sends through an SMTP relay or provider. |

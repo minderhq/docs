@@ -193,7 +193,7 @@ config are deliberately out of scope for a team export.
 colliding ids or names is resolved by a `policy` you choose — all three are
 **non-destructive** (nothing existing is ever overwritten):
 
-| Policy | Behaviour |
+| Policy | Behavior |
 |--------|-----------|
 | `skip` (default) | Keep the existing rows; drop the colliding incoming ones |
 | `rename` | Import each collision as a **fresh copy** — a new id and a de-duplicated name (`… (imported)`), with pipeline→KB references re-pointed at the re-keyed KBs |
