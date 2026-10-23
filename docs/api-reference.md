@@ -8,9 +8,9 @@ All examples use the API Gateway base URL `http://localhost:8000` for a local,
 self-hosted deployment. Adjust the host/port for your own deployment.
 
 !!! note "Self-hosted deployment"
-    This reference describes a self-hosted deployment. The API Gateway implements
-    JWT authentication with bcrypt-hashed credentials and Redis-backed rate
-    limiting; single sign-on is handled by Authelia (OIDC). See
+    This reference describes a self-hosted deployment. The API Gateway signs
+    EdDSA JWTs, stores credentials as bcrypt hashes and applies Redis-backed
+    rate limiting; single sign-on is handled by Authelia (OIDC). See
     [Authentication](authentication.md) for the full auth model.
 
 ## Overview
@@ -19,15 +19,20 @@ self-hosted deployment. Adjust the host/port for your own deployment.
 
 | Service | Container | Port | Summary |
 |---------|-----------|------|---------|
-| API Gateway | `minder-api-gateway` | 8000 | JWT+bcrypt auth, Redis rate-limit, httpx proxy to every other core service |
-| Plugin Registry | `minder-plugin-registry` | 8001 | Manifest install, health loop, AI-tool aggregation, tool discovery/execution, per-plugin licensing |
+| API Gateway | `minder-api-gateway` | 8000 | EdDSA JWT auth, Redis rate-limit, httpx proxy to every other core service |
+| Plugin Registry | `minder-plugin-registry` | 8001 | Manifest install, health loop, AI-tool aggregation, tool discovery/execution, per-plugin licensing. Calls plugin-runner to run plugin code |
 | Platform Ops | `minder-platform-ops` | 8010 | Operational control plane: service discovery, capability-bundle enable/disable, container logs, backup/restore job queue |
 | Marketplace | `minder-marketplace` | 8002 | Discovery/search/featured, license tiers, dependency graph (Neo4j) |
 | Orchestrator | `minder-orchestrator` | 8003 | AI-agent orchestration: OpenWebUI tool-server discovery/execution, chat completions with a multi-turn tool loop |
-| RAG Pipeline | `minder-rag-pipeline` | 8004 | Knowledge bases, doc ingest, Qdrant vectors; Standard/Conversational/HyDE/Self-RAG/auto/corrective/RAPTOR RAG via the query `method` field, adaptive `rerank`/`compress` flags, and `hybrid`/`parent_context` retrieval strategies (see `GET /capabilities`) |
+| RAG Pipeline | `minder-rag-pipeline` | 8004 | Knowledge bases, doc ingest, Qdrant vectors; Standard/Conversational/HyDE/Self-RAG/auto/corrective/RAPTOR RAG via the query `method` field, adaptive `rerank`/`compress` flags, and `hybrid`/`parent_context` retrieval strategies (see `GET /v1/capabilities`) |
 | Model Management | `minder-model-management` | 8005 | Ollama list/pull/delete/test (some endpoints are placeholders) |
 | TTS / STT | `minder-tts-stt` | 8006 | Text-to-speech (Piper offline default, WAV; gTTS fallback, MP3), speech-to-text |
 | Graph-RAG | `minder-graph-rag` | 8008 | spaCy NER, Neo4j knowledge-graph construction and retrieval |
+
+Plugin code does not run in these services: it runs in separate `plugin-runner`
+containers that only the plugin registry calls, and time-series data goes through
+an internal `timeseries-gateway`. Neither has a public API. See the
+[plugin trust model](security.md#plugin-trust-model).
 
 Minder also ships a separate web client (a React/Vite single-page app) as its
 management UI. It is a static SPA, not a FastAPI backend — it has no
@@ -101,7 +106,12 @@ through here at `/v1/ai/*` — see its own section below).
 
 | Method | Path | Description |
 |--------|------|-------------|
-| POST | `/v1/auth/register` | Create a user — body `{username, email, password}`. `username` must be 1-50 chars matching `^[A-Za-z0-9_.-]+$`, `email` a valid address, `password` ≥8 chars. No `role` field — every self-registered account is created as `"user"`; admin is only ever granted via Authelia OIDC group membership. **201** on success, **409** if the username/email exists, **422** on a bad body |
+| POST | `/v1/auth/register` | Create a user — body `{username, email, password, invite_token?}`. `username` must be 1-50 chars matching `^[A-Za-z0-9_.-]+$`, `email` a valid address, `password` ≥8 chars. No `role` field — every self-registered account is created as `"user"`; admin is only ever granted via Authelia OIDC group membership. Gated by the instance's registration mode ([Authentication](authentication.md#registration-modes)): in `invite` mode a valid `invite_token` is required (**403** `invite_required` / `invite_invalid`), in `sso_only` mode registration is off (**403**). **201** on success, **409** if the username/email exists, **422** on a bad body |
+| GET | `/v1/auth/capabilities` | Public. What the sign-in page may offer: `password_reset_email`, `email_verification`, `registration_mode` and the reset-link lifetime. Nothing else about the configuration |
+| POST | `/v1/auth/password-reset/request` | Ask for a reset link by email. Always **202** with the same body. **404** when email is off. See [Transactional email](email.md#6-turn-on-password-reset) |
+| POST | `/v1/auth/password-reset/confirm` | Set a new password with the emailed token. **204**; revokes every session of the account |
+| POST | `/v1/auth/verify-email` | Confirm the account's address with the token from the emailed link (sent on an explicit user action, single use) |
+| POST | `/v1/auth/verify-email/resend` | Send the caller a new verification link; older links stop working. **429** with `Retry-After` over the per-account limit |
 | POST | `/v1/auth/login` | Obtain a JWT — body `{username, password}` → `{access_token, token_type, expires_in, user}` (**401** on bad creds) |
 | POST | `/v1/auth/refresh` | Refresh an access token (bearer token in the `Authorization` header) → `{access_token, token_type, expires_in}`. Accepts a token up to `JWT_REFRESH_GRACE_MINUTES` past expiry; re-derives the claims from the database. **401** for a disabled account, revoked sessions, a session past `JWT_SESSION_MAX_HOURS`, or a service/subject-less token; **429** over the refresh rate limit |
 | POST | `/v1/auth/change-password` | Change the caller's **own** local password — body `{current_password, new_password}` (`new_password` ≥8 chars) → `{access_token, token_type, expires_in}`, a replacement token. Revokes every other session of the account. **400** on a wrong `current_password` or an unchanged password, **409** for an SSO-linked account |
@@ -126,17 +136,21 @@ on every `POST /v1/auth/refresh`.
 | PATCH | `/v1/auth/users/{user_id}/role` | Change a user's instance `role` (`user`/`admin`, **422** otherwise). **Platform Admin only.** **409** for an OIDC-linked account — Authelia's `groups` claim overwrites `role` on every login, so this would silently be undone — and **409** when demoting the last remaining active admin. A demotion revokes the user's sessions |
 | PATCH | `/v1/auth/users/{user_id}/status` | Deactivate or reactivate an account — body `{is_active}`. **Platform Admin only.** Deactivation blocks sign-in and refresh, and refuses existing tokens at once. **409** for your own account, the last active Platform Admin, the last active instance admin, or the last active owner of an organization |
 | POST | `/v1/auth/users/{user_id}/reset-password` | Reset a user's local password — body `{mode: "set", new_password}` or `{mode: "generate"}` (the response's `temporary_password` is returned once). Sets `must_change_password` and revokes the user's sessions. **Platform Admin only.** **409** for your own account (use `/v1/auth/change-password`) or an SSO-linked account |
-| POST | `/v1/teams` | Create a team — body `{name, description?}`. Any authenticated user; creator becomes its `team_admin` |
-| GET | `/v1/teams` | List all teams on the instance, paginated (`limit`/`offset`) — any authenticated user (a team roster isn't sensitive); there is no "my teams only" filter |
-| GET | `/v1/teams/{team_id}` | Team details + full member list |
+| POST | `/v1/teams/{team_id}/suspend` | Suspend a whole team (`/unsuspend` reverses it) |
+| POST | `/v1/teams/{team_id}/members/{user_id}/suspend` | Suspend one member's access within the team without removing the membership (`/unsuspend` reverses it). **409** for your own membership and for the team's last active `team_admin` |
+| POST | `/v1/teams/{team_id}/move` | Re-parent a team under another team, or detach it to top level. Needs `team.subteams.manage` on the team being moved and on the destination parent (instance admins excepted) |
+| POST | `/v1/teams` | Create a team — body `{name, description?, parent_team_id?}`. Any active member of the caller's **active organization**; the creator becomes its `team_admin` and gets a fresh token. A sub-team (`parent_team_id`) needs `team.subteams.manage` on the parent |
+| GET | `/v1/teams` | List the teams of the caller's active organization (switching organization changes the list), plus any organization-less team they belong to. A Platform Admin lists every organization's teams |
+| GET | `/v1/teams/{team_id}` | Team details. A team the caller can't list is **404**. The roster is returned to the team's members and admins, holders of `org.members.view`, and Platform Admins (otherwise `members` is empty and `roster_visible` is false); member emails go only to team admins, org managers and Platform Admins |
 | PATCH | `/v1/teams/{team_id}` | Update `name`/`description` — that team's `team_admin` or an instance admin |
 | DELETE | `/v1/teams/{team_id}` | Delete a team — same permission. Team name uniqueness is case-insensitive |
-| POST | `/v1/teams/{team_id}/members` | Add a member — body `{user_id, team_role: "member"\|"team_admin"}` — that team's `team_admin` or an instance admin |
+| POST | `/v1/teams/{team_id}/members` | Add a member — body `{user_id or email, team_role: "member"\|"team_admin"}` — that team's `team_admin` or an instance admin. Anyone but a Platform Admin can add only someone who is already a member of the team's organization, or whom that organization manages; any other user gets the same **404** as an unknown id (users from elsewhere join by accepting an invite) |
 | PATCH | `/v1/teams/{team_id}/members/{user_id}` | Change a member's `team_role` — same permission. **409** if this would demote the team's sole remaining `team_admin` (unless the caller is an instance admin) |
 | DELETE | `/v1/teams/{team_id}/members/{user_id}` | Remove a member — that team's `team_admin`/instance admin, **or the member removing themselves**. Same last-`team_admin` 409 guard applies to a self-removal |
 | GET | `/v1/teams/{team_id}/export` | Export the team's own subset as a downloadable JSON bundle — team metadata, the roster, and the **team-shared** (`visibility='team'`) KBs/pipelines only (private/shared KBs and org-global plugin config are out of scope; document/vector payloads are **excluded**). That team's `team_admin` or an instance/platform admin. Audited |
 | POST | `/v1/teams/{team_id}/import` | Import a team bundle into this team — body `{bundle, policy?}` (`skip`/`rename`/`fail`, same semantics and **422** conditions as the org import). Imported rows are stamped to this team; members join as plain `member`. Same permission; audited. A team bundle can't be imported through the org endpoint or vice-versa (distinct bundle formats) |
 | POST | `/v1/invites` | Issue a team invite — body `{email, team_id, team_role}`. That team's `team_admin` or an instance admin. Invite defaults to a 7-day expiry |
+| POST | `/v1/invites/bulk` | Invite several emails to the same team at the same role in one request. Authorization is checked once. Always **207 Multi-Status** with a per-email outcome (`created`, or `failed` with a reason), so one bad address never aborts the rest |
 | GET | `/v1/invites?team_id=` | List a team's invites, paginated — that team's `team_admin` or an instance admin |
 | POST | `/v1/invites/{invite_id}/revoke` | Revoke a pending invite — same permission (restricted to `team_admin`/instance admin, not the invited email) |
 | GET | `/v1/invites/by-token/{token}` | Look up invite info by token (email, team, role, effective status — a `pending` row past `expires_at` reports as `expired`) — **public**, no auth. Possession of the unguessable token is the credential |
@@ -154,24 +168,97 @@ Gateway-native routes, not proxied.
 
 | Method | Path | Description |
 |--------|------|-------------|
-| POST | `/v1/organizations` | Provision a new org — atomically creates the org, its primary owner (`owner_user_id`, defaults to the caller), and a default team. **Instance admin-only.** **409** on a taken `slug` |
+| POST | `/v1/organizations` | Provision a new top-level org — atomically creates the org, its primary owner (`owner_user_id`, defaults to the caller), and a default team. A **Platform Admin** may create one for any owner. Anyone else must already own an active top-level organization whose plan allows another, and becomes the new owner; the `top_level_orgs` and `owned_free_orgs` limits apply (**403** `reason: entitlement` over a hard one). Rate-limited per account. **409** on a taken `slug` |
 | POST | `/v1/organizations/switch` | Switch the caller's active tenant context — body `{organization_id}`. Re-mints the JWT with `active_tenant_id` set to the target; the caller's home `tenant_id` is unchanged. Any authenticated user, but **member-only**: **403** if they don't belong to the target org |
 | GET | `/v1/organizations/mine` | The orgs the **caller** belongs to (for the org switcher) — any authenticated user. Empty list for a user with no org membership yet, not an error |
-| GET | `/v1/organizations` | List all organizations with member counts, paginated (`limit`/`offset`). **Instance admin-only** (platform-operator view) |
-| GET | `/v1/organizations/{org_id}/members` | List an org's members — a member of that org, or a platform admin. **403** for a non-member (org membership is itself tenant-scoped) |
-| POST | `/v1/organizations/{org_id}/members` | Add a member or change their `org_role` (upsert) — body `{user_id, org_role}`. That org's own `owner`/`admin`, or an instance/platform admin |
+| GET | `/v1/organizations` | List all organizations with member counts, paginated (`limit`/`offset`). **Platform Admin only** (platform-operator view) |
+| GET | `/v1/organizations/{org_id}/members` | List an org's members — a holder of `org.members.view` on it, an ancestor org's manager, or a Platform Admin. **403** otherwise (org membership is itself tenant-scoped). Each item carries `is_active`, `suspended_at`, `managed_by_caller` and `resettable_by_caller` |
+| POST | `/v1/organizations/{org_id}/members` | Add a member or change their `org_role` (upsert) — body `{user_id, org_role}`. That org's own `owner`/`admin`, an ancestor org's `org.members.manage` holder, or an instance/platform admin. Anyone but a Platform Admin can change only an existing member's role, or add a user the org already manages (other users get **404**; they join by accepting an invite). Changing an owner's or admin's role needs owner-level authority (**403** `requires_owner`); demoting the last owner is **409** `last_owner` |
 | DELETE | `/v1/organizations/{org_id}/members/{user_id}` | Remove a member — same permission. **409** if this would remove the org's **last owner** |
 | POST | `/v1/organizations/{org_id}/members/{user_id}/reset-password` | Reset a **managed** member's local password — same body and response as `/v1/auth/users/{user_id}/reset-password`. Requires `org.members.manage` on the org (or Platform Admin); acting on an admin-level account needs owner-level authority, and owners can't be reset here. **403** if the account isn't managed by this org, **409** for your own or an SSO-linked account |
 | PATCH | `/v1/organizations/{org_id}/members/{user_id}/account-status` | Deactivate or reactivate a **managed** member's account (account-wide, unlike suspension) — body `{is_active}`. Same permission rules as the org-scoped reset. **409** for your own account or the last active owner of an organization |
-| POST | `/v1/organizations/{org_id}/invites` | Invite a user to the org by email — body `{email, org_role, max_uses}`. Same permission as member management |
+| POST | `/v1/organizations/{org_id}/invites` | Invite a user to the org by email — body `{email, org_role, max_uses}`. Same permission as member management. The org's policy applies: with `invite_policy = members` any active member may invite, single-use at the `member` role (and, in `invite` or `sso_only` mode, for an address with no account the invite becomes an access request for the org's admins, answered **202** with `access_request_id`); an address off the allowed email domains is **422** |
 | GET | `/v1/organizations/{org_id}/invites` | List an org's pending/spent invites, paginated. Same permission |
 | POST | `/v1/organizations/{org_id}/invites/{invite_id}/revoke` | Revoke a pending org invite. Same permission. **404** if the invite doesn't belong to this org |
 | GET | `/v1/organizations/{org_id}/export` | Export the org's structured data as a downloadable JSON bundle (org metadata, member list by email, KB **metadata**, pipelines, org-global plugin config — large document/vector payloads are **excluded**). Same permission as member management (org `owner`/`admin` or instance/platform admin). Served as a file attachment; audited |
 | POST | `/v1/organizations/{org_id}/import` | Import a bundle into this org — body `{bundle, policy?}`, `policy` one of `skip` (default) / `rename` / `fail` (**422** otherwise, or on a bad format/version or a `fail`-policy collision). All policies are non-destructive; imported members always join as plain `member`. Returns a report of what was written and every conflict resolved. Same permission; audited |
 
+The gateway also serves the organization hierarchy, custom roles, policy and
+limits. Authorization on these is by permission key (see
+[Authentication → Roles & permissions](authentication.md#roles-and-permissions));
+the interactive `/docs` page lists the exact gate for each route.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/v1/organizations/personal` | Create my own `personal` workspace: an account that belongs to no organization becomes the owner of a new one and gets a token for it. Allowed only while `SELF_SERVE_PERSONAL_ORGS` resolves true (by default, in `open` registration mode); **403** `installation_policy` otherwise, **409** `workspace_exists` once the account belongs to an organization |
+| PATCH | `/v1/organizations/{org_id}` | Edit an org's name, description, `entitlement_mode` and `default_locale` (`en` or `tr`). Same permission as member management |
+| DELETE | `/v1/organizations/{org_id}` | Delete an organization. Irreversible, and needs `confirm=<slug>`; see [Organizations & teams](organizations-teams.md#deleting-an-organization). **202** with the purge job |
+| GET | `/v1/org-purge-jobs`, `/v1/org-purge-jobs/{job_id}` | Purge jobs started by organization deletes. `POST /v1/org-purge-jobs/{job_id}/retry` re-queues a `failed` job (**409** if it is running or done) |
+| POST | `/v1/organizations/{org_id}/suborganizations` | Create a child organization. Needs `org.suborgs.create` on the parent, and a plan that allows sub-organizations (**403** `reason: entitlement` otherwise) |
+| POST | `/v1/organizations/{org_id}/move` | Re-parent an organization, or detach it to top level. Needs `org.suborgs.manage` on both the organization and the destination parent. **409** `org_kind_mismatch` under a parent of another kind |
+| GET | `/v1/organizations/{org_id}/subtree` | The full descendant tree plus an aggregate usage and entitlement summary. Members only (or Platform Admin) |
+| GET | `/v1/organizations/{org_id}/entitlement` | The organization's effective entitlement. Members only (or Platform Admin) |
+| POST | `/v1/organizations/{org_id}/suspend`, `/unsuspend` | Suspend or unsuspend a whole organization |
+| POST | `/v1/organizations/{org_id}/members/{user_id}/suspend`, `/unsuspend` | Suspend or unsuspend one member's access without removing them. **409** for your own membership and for the last owner |
+| POST | `/v1/organizations/{org_id}/convert` | Convert a `personal` organization (and its personal sub-organizations) to `standard`. **Platform Admin only**, one-way, audited; the owners are emailed |
+| GET, PATCH | `/v1/organizations/{org_id}/policy` | The organization's onboarding policy (`invite_policy`, `allow_account_creating_invites`, `allowed_email_domains`, `team_admins_may_create_accounts`, `require_2fa`). Reading needs membership; changing needs `org.settings.manage`. A knob's effective value is the stricter of the org's and its ancestors' |
+| GET | `/v1/organizations/{org_id}/seats` | Seat usage (`used`, `reserved`, `max`, `state`). Needs `org.members.manage` or Platform Admin |
+| GET | `/v1/organizations/{org_id}/limits` | Every onboarding limit with the source that applied. Full view for `org.members.manage` and Platform Admin; members get the policy availability only |
+| PUT, DELETE | `/v1/organizations/{org_id}/limits/{key}` | Set or clear a per-org operator override. **Platform Admin only**, audited |
+| GET, POST | `/v1/organizations/{org_id}/roles` | List the roles usable from the org (system roles, its own, its ancestors') or create a custom role. `GET`, `DELETE /roles/{role_id}`, and `POST`/`DELETE` on `/roles/{role_id}/permissions[/{permission_key}]` and `/roles/{role_id}/permission-groups[/{group_id}]` manage one role |
+| GET, POST | `/v1/organizations/{org_id}/permission-groups` | List or create permission groups. `GET`/`DELETE /permission-groups/{group_id}`, `POST`/`DELETE` on `.../permissions[/{permission_key}]` and `.../children[/{child_group_id}]` manage one group and its nesting |
+| GET, POST | `/v1/organizations/{org_id}/members/{user_id}/roles` | List a member's role assignments, or grant a custom role (optionally with `expires_at`). Needs `org.members.manage` plus the grant-authority rule for that role. `DELETE .../roles/{role_id}` revokes it |
+| POST | `/v1/organizations/{org_id}/members/bulk-roles` | Grant one custom role to a list of members. Always **207** with a per-member outcome |
+| GET | `/v1/organizations/{org_id}/members/{user_id}/effective-permissions` | What a member can actually do, naming the role and permission group each permission came from |
+| POST | `/v1/organizations/{org_id}/members/{user_id}/restore-role` | Re-apply one member's original role preserved from a past import (imports always add members as plain `member`). One member per call |
+| POST | `/v1/organizations/{org_id}/invites/bulk` | Invite several emails at the same `org_role`. Always **207** with a per-email outcome; the org policy applies per row |
+| GET | `/v1/organizations/{org_id}/audit-logs` | Audit entries for the org and its sub-organizations, newest first. Needs `org.audit.view` (or Platform Admin) |
+| GET | `/v1/me/permissions` | The caller's effective permissions in their active organization (with sources), per team, the Platform Admin flag and a `permission_version` for cache invalidation. Any authenticated user |
+
 Org-invite redemption reuses the already-documented
 `POST /v1/invites/by-token/{token}/redeem` — there is no separate
 `/v1/organizations/...` redemption endpoint.
+
+### Access requests, onboarding and profile
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/v1/access-requests` | Send an access request that waits for the organization's admins, who are emailed. Kinds: `join` (only from an account with no organization), `invite`, `team_join`, `plugin_install`, `model_request` and `plan_request`. Nothing is approved automatically |
+| GET | `/v1/access-requests` | The caller's own requests, newest first |
+| GET | `/v1/access-requests/inbox` | The requests routed to the caller across their organizations. The first decision closes a request for every recipient |
+| GET | `/v1/access-requests/organizations` | The organizations the caller may ask to join: those that accept requests, and the one their verified email domain maps to |
+| POST | `/v1/access-requests/{request_id}/withdraw` | Withdraw one of your own pending requests |
+| GET | `/v1/organizations/{org_id}/access-requests` | The organization's requests |
+| POST | `/v1/organizations/{org_id}/access-requests/{request_id}/approve`, `/deny` | Decide a request. Approving `join`, `invite` or `team_join` acts on it with the usual admission checks (email domains, seats, suspended org); approving `plugin_install`, `model_request` or `plan_request` only records the decision |
+| GET, PUT | `/v1/organizations/{org_id}/access-requests/settings` | Whether the organization is listed for accounts without a workspace (default off). Changing it needs `org.settings.manage` |
+| GET | `/v1/organizations/{org_id}/access-requests/routing` | Who receives each kind of request |
+| PUT | `/v1/organizations/{org_id}/access-requests/routing/{kind}` | Set the recipients for one kind (`[]` restores the default). Needs `org.settings.manage`. `plan_request` routing is not configurable |
+| GET, PATCH | `/v1/onboarding` | The caller's onboarding state (intro answers, checklist, skipped flag) in their active organization. `GET` never returns `404` |
+| GET | `/v1/readiness` | Whether the caller's organization is ready to use, as four checks with machine-readable reasons: `model`, `pipeline`, `knowledge_base` and `email` |
+| GET, PATCH | `/v1/profile/me` | The caller's own profile and preferences, with `workspace_state`, `can_create_workspace`, `email_verified`, `email_verification_required` and the resolved `effective_locale` (`en` or `tr`) |
+| GET, PUT | `/v1/model-defaults` | The organization's default model per task. Any member can read; changing it needs the model-management org-admin gate |
+| GET | `/v1/audit-logs` | All audit entries, newest first, with `actor_id`, `action`, `target_type` and `scope_type` filters. **Platform Admin only** |
+
+### Public chat
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET, POST | `/v1/public-chat/endpoints` | List or create the organization's public chat endpoints (tenant-scoped). `GET`, `PATCH` and `DELETE` on `/endpoints/{endpoint_id}` manage one. Deleting an endpoint also deletes its anonymous transcripts |
+| GET | `/v1/public-chat/endpoints/{endpoint_id}/conversations[/{session_id}]`, `/feedback` | Review an endpoint's anonymous conversations and feedback |
+| POST | `/public/chat/{slug}/session` | Start an anonymous session. Returns a short-lived token scoped to that endpoint. No account is created. Rate-limited per endpoint |
+| POST | `/public/chat/{slug}/message` | Send a message on an anonymous session. Runs only the endpoint's bound pipeline |
+| POST | `/public/chat/{slug}/feedback` | Leave feedback on an anonymous session |
+| DELETE | `/public/chat/{slug}/session` | Erase the session's own transcript |
+
+The `/public/chat/*` routes need no Minder JWT, only the session token. They
+work only while the endpoint is enabled.
+
+### Other gateway routes
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/.well-known/minder/plugin-jwks.json` | Anonymous. The public keys (Ed25519) remote plugins use to verify Minder's signed calls |
+| GET | `/v1/billing/subscription`; POST `/v1/billing/checkout`, `/v1/billing/portal` | The organization's plan and hosted checkout and portal links, served by the marketplace service. JWT-gated |
 
 ### Proxy routes
 
@@ -213,11 +300,16 @@ can legitimately run well past 30s.
 | GET | `/v1/containers/{name}/logs` | Proxies to Platform Ops's `GET /v1/containers/{name}/logs?tail=` (Platform Admin only, enforced there, not here — see Platform Ops's Containers section below) |
 | GET | `/metrics` | Prometheus metrics |
 
-**Authentication:** JWT (HS256) with bcrypt-hashed credentials. Send
-`Authorization: Bearer <token>` on protected routes. See
+**Authentication:** EdDSA JWTs, with bcrypt-hashed credentials for local
+accounts. Send `Authorization: Bearer <token>` on protected routes. See
 [Authentication](authentication.md).
 **Rate limiting:** Redis-backed, 60-second window, **fail-open** (requests are
-allowed if Redis is unreachable).
+allowed if Redis is unreachable). Anonymous callers are limited per client IP
+(`RATE_LIMIT_PER_MINUTE`, 60), signed-in callers per IP and user
+(`RATE_LIMIT_AUTHENTICATED_PER_MINUTE`, 300), and `/v1/auth/login` and
+`/v1/auth/register` per IP only. A `429` carries `Retry-After`.
+**Security headers:** every gateway response carries the headers listed under
+[Security](security.md#whats-in-place).
 
 ```bash
 # Health
@@ -238,10 +330,12 @@ curl -s http://localhost:8000/v1/plugins -H "Authorization: Bearer $TOKEN" | jq 
 
 ## Plugin Registry — `http://localhost:8001`
 
-Plugin registration, discovery, and lifecycle management. Manifest plugins are
-declarative and run no plugin code; module (code) plugins are Python that the
-registry runs **in-process** (see the
-[plugin trust model](security.md#plugin-trust-model)).
+Plugin registration, discovery, and lifecycle management. The registry decides
+who may call what, then runs plugin code **out of process** by calling a
+`plugin-runner` container: code plugins run in the `trusted` or `privileged`
+group, and declarative (T0) manifest plugins run in the `declarative` group,
+which runs no plugin code. The registry image holds no plugin code itself. See
+the [plugin trust model](security.md#plugin-trust-model).
 The registry runs a 60-second health loop and auto-syncs with the marketplace.
 
 ### Plugins
@@ -251,6 +345,8 @@ The registry runs a 60-second health loop and auto-syncs with the marketplace.
 | GET | `/v1/plugins` | List registered plugins (`GET /plugins` is a legacy alias) |
 | GET | `/v1/plugins/{plugin_name}` | Plugin details |
 | POST | `/v1/plugins/install` | Install a plugin from its manifest (fixed handlers only, admin-only) |
+| POST | `/v1/plugins/install-from-git` | Install a manifest plugin by fetching its manifest from a git repository (`{repo_url, ref?, subpath?, token?}`). **Platform Admin only.** Only the manifest is read and validated; repository code is never imported or run. A private-repo token is stored encrypted |
+| POST | `/v1/plugins/{plugin_name}/refresh-from-git` | Re-fetch an installed manifest plugin and apply the new manifest in place. **Platform Admin only.** The manifest's name must match |
 | DELETE | `/v1/plugins/{plugin_name}` | Uninstall a plugin (admin-only) |
 | POST | `/v1/plugins/{plugin_name}/enable` | Enable a plugin (admin-only) |
 | POST | `/v1/plugins/{plugin_name}/disable` | Disable a plugin (admin-only) |
@@ -262,6 +358,12 @@ The registry runs a 60-second health loop and auto-syncs with the marketplace.
 | GET | `/v1/plugins/{plugin_name}/config` | Config schema + effective values, secrets masked (JWT-gated) |
 | PUT | `/v1/plugins/{plugin_name}/config` | Update config: validate → persist → apply live, no restart (JWT-gated) |
 | GET | `/v1/plugins/ai/tools` | Aggregated AI-tool definitions across all plugins |
+| GET | `/v1/plugins/schema` | The manifest JSON Schema (draft-07), unauthenticated |
+| GET | `/v1/plugins/{plugin_name}/capabilities` | The platform capabilities granted to the plugin and the declarations they come from. **Platform Admin only.** `execution` is always `runner` |
+| GET | `/v1/plugins/{plugin_name}/secrets` | The **names** of the plugin's secrets in the caller's scope, never the values |
+| PUT, DELETE | `/v1/plugins/{plugin_name}/secrets/{secret_key}` | Set (`{"value": "..."}`) or delete one secret, encrypted at rest. Write-only: there is no read-back |
+| GET, POST | `/v1/plugins/{plugin_name}/tools/{tool_name}/effect` | Admin-only. `GET`: the tool's declared effect, the automatic analysis, its trust tier and its effective class. `POST`: confirm or tighten the effect class (never loosen it). A confirmation goes stale if a later plugin version changes the declaration |
+| GET | `/v1/plugins/{plugin_name}/{resource_name}`, `/{item_id}` | List or fetch a collection a plugin declares as a resource (`limit`, `cursor`; other query parameters are passed as filters) |
 
 ### Webhooks
 
@@ -273,16 +375,15 @@ The registry runs a 60-second health loop and auto-syncs with the marketplace.
 
 ### Tools (`/v1/tools`)
 
-Tool discovery and execution. Execution dispatches the plugin action
-**in-process** (the registry already runs the plugins, so there is no HTTP hop
-back to itself). Reachable through the gateway (`GET /v1/tools`,
+Tool discovery and execution. Execution dispatches the plugin action to the
+plugin's runner after the registry's own checks. Reachable through the gateway (`GET /v1/tools`,
 `GET/POST /v1/tools/{path:path}`).
 
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/v1/tools` | Discover all executable tools (paginated) |
 | GET | `/v1/tools/{tool_name}` | Tool details |
-| POST | `/v1/tools/{tool_name}/execute` | Execute a tool in-process (license-validated against the JWT `sub`, JWT-gated) |
+| POST | `/v1/tools/{tool_name}/execute` | Execute a tool (license-validated against the JWT `sub`, JWT-gated) |
 | GET | `/v1/tools/plugins/{plugin_id}/tools` | Tools for one plugin (by marketplace UUID) |
 | POST | `/v1/tools/validate` | Validate a user's tier against a tool |
 
@@ -373,6 +474,12 @@ real work. All endpoints are admin-only. Reachable through the gateway
 | GET | `/v1/backups/jobs/{job_id}` | Get one job's status/output (404 if unknown) |
 | POST | `/v1/backups/{name}/restore` | Enqueue a restore job (**202**). Destructive — beyond admin-only gating, the body must echo `{"confirm_filename": "<name>"}` exactly matching the archive being restored |
 
+### Managed services (internal)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/v1/managed-services/{name}/restart` | Restart one allowlisted sidecar container (today `telegraf`). Accepts only plugin-registry's signed service token |
+
 ### Ops
 
 | Method | Path | Description |
@@ -392,6 +499,8 @@ in PostgreSQL; the dependency/conflict graph is backed by **Neo4j**.
 | GET | `/v1/marketplace/plugins` | List catalog plugins — filterable; paginated via `limit`/`offset` (canonical; `page`/`page_size` accepted but deprecated). Response carries both `total`/`limit`/`offset` and `page`/`page_size`/`total_pages` |
 | GET | `/v1/marketplace/plugins/search` | Full-text search (same `limit`/`offset` pagination) |
 | GET | `/v1/marketplace/plugins/featured` | Featured plugins |
+| GET | `/v1/marketplace/plugins/semantic-search` | Search the catalog by meaning (vector similarity), so a plugin whose wording differs from the query is still found. Public and read-only; returns an empty list, not an error, if the embedding backend or Qdrant is unreachable. Backs the orchestrator's `find_plugin` tool |
+| GET | `/v1/marketplace/plugins/{plugin_id}/versions` | Every recorded version of a plugin, newest first. Readable by whoever may read the plugin |
 | GET | `/v1/marketplace/plugins/{plugin_id}` | Plugin details |
 | POST | `/v1/marketplace/plugins` | Create a catalog entry (called by plugin-registry) |
 | PUT | `/v1/marketplace/plugins/{plugin_id}` | Update catalog metadata (partial; name/display_name/description/author/pricing_model/base_tier/featured/requires_services). 404 if unknown, 422 if empty. `status` is **not** updatable here (**422**, pointing at `/submissions/*`); a developer editing their own listing is limited to `draft`/`rejected` and cannot set `featured` |
@@ -405,7 +514,16 @@ in PostgreSQL; the dependency/conflict graph is backed by **Neo4j**.
 | POST | `/v1/marketplace/plugins/{plugin_id}/enable` | Enable |
 | POST | `/v1/marketplace/plugins/{plugin_id}/disable` | Disable |
 | GET | `/v1/marketplace/plugins/{plugin_id}/installations` | List installations for a plugin, all users (admin-gated) |
+| PUT, DELETE | `/v1/marketplace/installations/{installation_id}/pin` | Pin an installation to one of its plugin's published versions (`PUT`, body names the `version`; **422** if it isn't published, **409** if the plugin isn't installed) or remove the pin. Bulk and automatic updates skip a pinned installation. Only the installation's owner or a Platform Admin may pin it; anyone else gets **404**. Audited |
 | GET | `/v1/marketplace/installations/me` | List the *authenticated user's* installed plugins, across the whole catalog, with plugin metadata inlined — a disjoint prefix, not nested under `/plugins/`, since `GET /plugins/{plugin_id}` is registered first and would swallow a literal segment like `installed` as `{plugin_id}` |
+
+### Plugin sources (`/v1/marketplace/repositories`)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/v1/marketplace/repositories` | List plugin source repositories with their live linked-plugin count. Public, read-only, same pagination as the catalog |
+| GET | `/v1/marketplace/repositories/{repository_id}` | One repository |
+| GET | `/v1/marketplace/repositories/{repository_id}/plugins` | The plugins linked to a repository |
 
 ### Ratings & reviews (`/v1/marketplace/plugins/{plugin_id}/ratings`)
 
@@ -431,6 +549,7 @@ reviewer actions are admin-only.
 
 | Method | Path | Description |
 |--------|------|-------------|
+| GET | `/v1/marketplace/submissions/{plugin_id}`, `/{plugin_id}/history` | A submission's detail and its state-change history |
 | GET | `/v1/marketplace/submissions/mine` | List the caller's own submissions (any status), newest first — scoped to the JWT `sub`; paginated via `limit`/`offset` same as the catalog above |
 | POST | `/v1/marketplace/submissions/{plugin_id}/submit` | Developer (or admin/service): move an own `draft`/`rejected` submission to `submitted`. A non-owner gets **404** (same as unknown id) |
 | GET | `/v1/marketplace/submissions?status=submitted` | **Admin** review queue for a given status (default `submitted`), oldest-first; `origin='submitted'` only; paginated via `limit`/`offset` |
@@ -457,6 +576,9 @@ reviewer actions are admin-only.
 | GET | `/v1/marketplace/licenses/lookup` | Admin/service-only: the tier of a specific user's active license for a specific plugin — `?user_id=&plugin_id=` → `{tier, active}`. Backs plugin-registry's tool-tier enforcement |
 | POST | `/v1/marketplace/licenses/validate` | Validate a license against a tier |
 | POST | `/v1/marketplace/licenses/activate` | Activate a license (admin/service-gated) |
+| GET | `/v1/marketplace/licenses/{license_id}/key` | The full license key for self-hosted or offline activation. The owning org's owners and billing managers, or a Platform Admin. Every call is audited and the response is `no-store` |
+| POST | `/v1/marketplace/licenses/{license_id}/rotate` | Issue a new key and invalidate the old one. Same authorization and audit as the reveal route; the response is masked |
+| GET | `/v1/marketplace/entitlements/{tenant_id}` | Internal: an org's entitlement, service-token only |
 
 ### Dependency graph (`/v1/graph`, Neo4j-backed)
 
@@ -466,6 +588,8 @@ reviewer actions are admin-only.
 | POST | `/v1/graph/dependencies` | Register/update dependency edges (**admin**/service-gated; the graph is a shared platform-wide control) |
 | GET | `/v1/graph/conflicts/{plugin_id}` | Detect conflicts |
 | POST | `/v1/graph/recommendations` | Recommend related plugins |
+| GET | `/v1/graph/dependencies/{plugin_id}/resolve` | Resolve a plugin's dependency chain |
+| GET | `/v1/graph/bundles/required`, `/v1/graph/bundles/{name}/required` | Which capability bundles installed plugins currently require (used when deciding whether a bundle can be disabled) |
 | GET | `/v1/graph/health` | Dependency-graph subsystem health |
 
 ### Ops
@@ -485,9 +609,61 @@ are stable regardless of where the code lives.
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/v1/ai/functions/definitions` | Aggregated AI-tool (function) definitions from all plugins, in OpenAI function schema. Deliberately open (no auth) — OpenWebUI's Tool Server integration has no way to attach a Minder JWT |
-| GET | `/v1/ai/tools/openapi.json` | OpenAPI 3.x spec of Minder's read-only (GET-only) plugin tools, consumable directly as an OpenWebUI "Tool Server." Deliberately open, same reason as above — only ever includes GET-method tools, never mutating/admin ones |
-| POST | `/v1/ai/functions/{function_name}` | Execute a named AI tool; proxied to the plugin's endpoint (forwards the caller's JWT, if any), returned in OpenAI function-result format. Not independently auth-gated at this route — the downstream plugin endpoint enforces its own auth, so a mutating tool call without a valid JWT is rejected there |
-| POST | `/v1/ai/chat/completions` | Chat via Ollama. **Requires a valid Minder JWT** (this endpoint calls Ollama directly with nothing else in the request path to gate it, unlike the tool-discovery/execution routes above). Plugin function-calling is **opt-in** via `"minder_tools": true` (orchestrator offers plugin tools **plus one synthesized `ask_<pipeline-name>` tool per RAG pipeline the caller owns** (owner-scoped) — the chat↔RAG bridge — **plus a `find_correlations` tool over graph-rag's correlation engine** — executes the model's `tool_calls` forwarding the caller's JWT, and feeds results back). Without the flag it's a plain Ollama `/api/chat` passthrough |
+| GET | `/v1/ai/tools/openapi.json` | OpenAPI 3.x spec of Minder's plugin tools whose effect is `read`, consumable directly as an OpenWebUI "Tool Server." Deliberately open, same reason as above. A tool that writes, sends or deletes (or whose effect is unknown) is never listed |
+| POST | `/v1/ai/functions/{function_name}` | Execute a named AI tool, forwarding the caller's JWT, and return the result in OpenAI function-result format. A `read` tool runs straight away. Any other tool needs a signed-in user (**401** otherwise, **403** for a service principal) and is held: **202** with `approval_id` and `status_url` (see [Tool approvals](#tool-approvals)) |
+| POST | `/v1/ai/chat/completions` | Chat via Ollama, or a cloud provider. **Requires a valid Minder JWT.** Plugin function-calling is **opt-in** via `"minder_tools": true`: the orchestrator offers plugin tools **plus one synthesized `ask_<pipeline-name>` tool per RAG pipeline the caller owns** (owner-scoped) **plus a `find_correlations` tool over graph-rag's correlation engine**, executes the model's `tool_calls` with the caller's JWT, and feeds results back. `read` tools run directly; other tools pause for approval (**202** for a headless caller). Without the flag it is a plain chat passthrough. Images, links to non-allowlisted hosts and raw HTML in the answer text are neutralised. Rate-limited to 15/min per caller |
+| GET | `/v1/ai/chat/approvals/{approval_id}` | Status of a pending tool-call approval: the calls, their effect, expiry and, once decided, the result. Only the user (and tenant) who started the chat can see it |
+| POST | `/v1/ai/chat/approvals/{approval_id}` | Approve or reject a paused tool call. Body `{"decision": "approve"\|"reject", "args_hash"?, "items"?}` |
+
+### Tool approvals {#tool-approvals}
+
+Plugins declare an `effect` on each AI tool: `read` (no side effects), `write`
+(changes data inside the user's own systems), `send` (data leaves to a third
+party or recipient) or `destructive` (deletes or changes something
+irreversibly). Minder runs `read` tools straight away and **pauses** every other
+call until the user approves it. A tool with no declared effect, or an unknown
+one, counts as `write` (it fails closed). Minder also analyses each tool, and
+does not trust a declaration that strong evidence contradicts, for example a
+`read` tool that takes a recipient argument. An admin can confirm or
+tighten (never loosen) a tool's class with
+`POST /v1/plugins/{plugin_name}/tools/{tool_name}/effect`: instance-wide needs
+a Platform Admin, and a confirmation for one organization can come from that
+organization's admin, only for private or remote plugins.
+
+What the caller sees when a call pauses:
+
+- **Headless callers** (an API client, or any request without the header
+  `X-Minder-Client: web`) get **`202`** with `approval_id`, `status`
+  (`pending`), `status_url`, `summary`, `expires_at` and `pending_tool_call`.
+  Nothing has run. The same `202` applies to `POST /v1/ai/functions/{name}`.
+- **The web client** (`X-Minder-Client: web`) gets a normal `200` chat response
+  carrying `minder_approval_required: true` and `pending_tool_call`, which its
+  approval card renders.
+
+Then decide with `POST /v1/ai/chat/approvals/{approval_id}`:
+
+- `{"decision": "approve", "args_hash": "<hash>"}` approves a single call. The
+  hash is the SHA-256 of that call's exact arguments, as returned in
+  `pending_tool_call`, so only the call the user saw can run. A turn with
+  several effectful calls is one approval: approve the ones you want with
+  `"items": [{"index": 0, "args_hash": "..."}]`, and the items left out are fed
+  back to the model as rejected.
+- `{"decision": "reject"}` rejects every item. The model is told the user
+  declined and continues.
+
+Approval runs exactly the stored calls, never arguments from the decision
+request, then resumes the conversation and returns the continued completion
+(for a call started through `/v1/ai/functions/{name}`, the approval status
+whose `result` is the tool's response). The effect is re-checked when the
+decision arrives, and a call whose class has become stricter since is refused
+and needs a new approval. A pending approval expires after 15 minutes and then
+counts as rejected. A decision returns **`404`** if the approval doesn't exist
+for this user and tenant (including after the orchestrator restarted, since
+pending approvals are held in memory), and **`409`** if it already expired or
+was decided, or if the `args_hash` doesn't match. `MINDER_FUNCTIONS_APPROVAL`
+(`enforce` by default; `warn` is a migration window that runs the call but
+audits it and answers with `X-Minder-Approval: bypassed-migration-window`; any
+other value is treated as `enforce`) controls the direct-execution route.
 
 ### Ops
 
@@ -502,40 +678,47 @@ Chunking, embedding, retrieval, and generation. Documents are embedded into
 endpoint supports Standard and Conversational RAG (set `conversation_id` for
 multi-turn history), plus **HyDE**, **Self-RAG**, **auto** (decision engine),
 **corrective**, and **RAPTOR** RAG — all selectable via the `method` field on
-`POST /pipeline/{id}/query`
+`POST /v1/pipeline/{id}/query`
 (`standard`/`hyde`/`self_rag`/`auto`/`corrective`/`raptor`). Orthogonal `rerank`
 and `compress` flags, and the `hybrid` (dense+BM25) and `parent_context`
-(small-to-big) retrieval strategies, are also wired. `GET /capabilities` reports
+(small-to-big) retrieval strategies, are also wired. `GET /v1/capabilities` reports
 what's active on the host. For the method-by-method detail, see
 [RAG methods](rag-methods.md).
 
 | Method | Path | Description |
 |--------|------|-------------|
-| POST | `/initialize` | Initialize the Ollama client / warm the pipeline |
-| GET | `/capabilities` | What's actually live on this host (rerank backend, hybrid/parent-context availability, etc.) — see [RAG methods](rag-methods.md) |
-| GET | `/decision-stats` | Cumulative analytics for the `method="auto"` routing engine — total decisions, strategy/complexity distributions, mean confidence. `available:false` when the auto engine isn't initialized (e.g. Ollama unreachable). In-memory (resets on restart) |
-| POST | `/knowledge-bases` | Create a knowledge base (`name` required, `description` optional; pick embedding + LLM model) |
-| GET | `/knowledge-bases` | List knowledge bases — paginated via `limit`/`offset`; returns the shared `{items, total, limit, offset}` envelope |
-| GET | `/knowledge-bases/{kb_id}` | Get a single knowledge base (404 if unknown) |
-| PATCH | `/knowledge-bases/{kb_id}` | Update a KB's **mutable metadata** — `name` / `description` / `llm_model` / `visibility` / `team_id` — in place, WITHOUT touching its documents or vectors (JWT-gated; 404 if unknown). `embedding_model` and the chunk params are immutable (changing them would invalidate the stored vectors). Setting `visibility: "team"` requires a `team_id` (from the request or the KB's existing one) **and** caller membership in that team (checked against the JWT `teams` claim, 403 otherwise); switching to any other visibility clears `team_id`. Team visibility grants **read only** — updating/deleting the KB or its documents stays owner-only regardless of team membership |
-| DELETE | `/knowledge-bases/{kb_id}` | Delete a KB — drops its Qdrant collection + PostgreSQL row (404 if unknown) |
-| POST | `/knowledge-bases/{kb_id}/upload` | Upload a document into a KB — PDF, Word (`.docx`/`.doc`), spreadsheets, images (OCR), audio/video (transcribed), and [many more formats](ingestion.md); the type is detected from content, not the extension, and an unrecognized file is rejected **415**. **413** over `MAX_UPLOAD_SIZE_MB` (default 50MB) — also capped a level up by the gateway's own `MAX_PROXY_BODY_SIZE_MB` (150MB). Returns **503** if the embedding backend is unreachable — the doc is NOT indexed (no silent zero-vector). Response includes a `document_id`, one per upload call. Optional form field `build_tree: bool` opts into RAPTOR tree construction for this document (see [RAG methods](rag-methods.md)) |
-| GET | `/knowledge-bases/{kb_id}/documents` | List documents in a KB, one entry per upload — not per chunk (404 if the KB is unknown). Returns the shared `{items, total, limit, offset}` envelope |
-| GET | `/knowledge-bases/{kb_id}/documents/{document_id}/chunks` | List a single document's stored chunks (`chunk_index` + `text`) — lets a caller tell a bad extraction/OCR apart from a retrieval/generation issue. RAPTOR tree-summary nodes excluded. Paginated via `limit`/`offset`; returns the shared `{items, total, limit, offset}` envelope. 404 if the KB or document is unknown |
-| DELETE | `/knowledge-bases/{kb_id}/documents/{document_id}` | Delete a single document's chunks/vectors, leaving the rest of the KB intact (404 if the KB or document is unknown) |
-| POST | `/pipeline` | Create a RAG pipeline over one or more knowledge bases. The creator (JWT `sub`) is recorded as `owner_id` for owner-scoping |
-| GET | `/pipeline` | List RAG pipelines — paginated via `limit`/`offset`; returns the shared `{items, total, limit, offset}` envelope. Optional `?owner_id=` filters to that owner's pipelines (+ legacy null-owner ones), used by the orchestrator to owner-scope the `ask_<pipeline>` chat tools |
-| GET | `/pipeline/{pipeline_id}` | Get a single RAG pipeline (404 if unknown) |
-| PATCH | `/pipeline/{pipeline_id}` | Update a pipeline's `name` and/or `knowledge_base_ids` in place (JWT-gated; 404 if the pipeline or a supplied KB is unknown) |
-| DELETE | `/pipeline/{pipeline_id}` | Delete a pipeline (referenced KBs are left intact; 404 if unknown) |
-| POST | `/pipeline/{pipeline_id}/query` | Query a pipeline (retrieval + generation). **Owner-scoped**: only the creator (or the service/admin principals) may query it — a non-owner → **403**. Legacy pipelines with no recorded owner stay open. This protects both a direct call and the OpenWebUI `ask_<pipeline>` chat tool (the gateway forwards the end user's JWT) |
+| POST | `/v1/initialize` | Initialize the Ollama client / warm the pipeline |
+| GET | `/v1/capabilities` | What's actually live on this host (rerank backend, hybrid/parent-context availability, etc.) — see [RAG methods](rag-methods.md) |
+| GET | `/v1/decision-stats` | Cumulative analytics for the `method="auto"` routing engine — total decisions, strategy/complexity distributions, mean confidence. `available:false` when the auto engine isn't initialized (e.g. Ollama unreachable). In-memory (resets on restart) |
+| POST | `/v1/knowledge-bases` | Create a knowledge base (`name` required, `description` optional; pick embedding + LLM model) |
+| GET | `/v1/knowledge-bases` | List knowledge bases — paginated via `limit`/`offset`; returns the shared `{items, total, limit, offset}` envelope |
+| GET | `/v1/knowledge-bases/{kb_id}` | Get a single knowledge base (404 if unknown) |
+| PATCH | `/v1/knowledge-bases/{kb_id}` | Update a KB's **mutable metadata** — `name` / `description` / `llm_model` / `visibility` / `team_id` — in place, WITHOUT touching its documents or vectors (JWT-gated; 404 if unknown). `embedding_model` and the chunk params are immutable (changing them would invalidate the stored vectors). Setting `visibility: "team"` requires a `team_id` (from the request or the KB's existing one) **and** caller membership in that team (checked against the JWT `teams` claim, 403 otherwise); switching to any other visibility clears `team_id`. Team visibility grants **read only** — updating/deleting the KB or its documents stays owner-only regardless of team membership |
+| DELETE | `/v1/knowledge-bases/{kb_id}` | Delete a KB — drops its Qdrant collection + PostgreSQL row (404 if unknown) |
+| GET | `/v1/knowledge-bases/{kb_id}/documents/{document_id}/status` | Poll the background ingestion job started by an upload. **404** if the job is unknown (including after the service restarted: jobs are held in memory) or belongs to another KB |
+| POST | `/v1/knowledge-bases/{kb_id}/export` | Queue an export of the KB's document blobs and vectors. Returns a `job_id`; poll `GET /v1/knowledge-bases/{kb_id}/export/jobs/{job_id}` for the download URL. Owner (or a privileged principal) only |
+| POST | `/v1/knowledge-bases/{kb_id}/import` | Queue an import of a finished export of this tenant into the KB; returns a `job_id`. The points are re-stamped with the KB's owner, tenant and visibility |
+| GET, POST | `/v1/knowledge-bases/{kb_id}/re-embed` | `GET`: the KB's embedding profile version and its latest re-embed. `POST`: re-embed every point with the current embedding profile (**202**, runs in the background; **409** if already running). KBs created before embedding-model task prefixes stay on profile 0 until re-embedded |
+| POST | `/v1/knowledge-bases/{kb_id}/upload` | Upload a document into a KB — PDF, Word (`.docx`/`.doc`), spreadsheets, images (OCR), audio/video (transcribed), and [many more formats](ingestion.md); the type is detected from content, not the extension, and an unrecognized file is rejected **415**. **413** over `MAX_UPLOAD_SIZE_MB` (default 50MB) — also capped a level up by the gateway's own `MAX_PROXY_BODY_SIZE_MB` (150MB). Returns **503** if the embedding backend is unreachable — the doc is NOT indexed (no silent zero-vector). Response includes a `document_id`, one per upload call. Optional form field `build_tree: bool` opts into RAPTOR tree construction for this document (see [RAG methods](rag-methods.md)) |
+| GET | `/v1/knowledge-bases/{kb_id}/documents` | List documents in a KB, one entry per upload — not per chunk (404 if the KB is unknown). Returns the shared `{items, total, limit, offset}` envelope |
+| GET | `/v1/knowledge-bases/{kb_id}/documents/{document_id}/chunks` | List a single document's stored chunks (`chunk_index` + `text`) — lets a caller tell a bad extraction/OCR apart from a retrieval/generation issue. RAPTOR tree-summary nodes excluded. Paginated via `limit`/`offset`; returns the shared `{items, total, limit, offset}` envelope. 404 if the KB or document is unknown |
+| DELETE | `/v1/knowledge-bases/{kb_id}/documents/{document_id}` | Delete a single document's chunks/vectors, leaving the rest of the KB intact (404 if the KB or document is unknown) |
+| POST | `/v1/pipeline` | Create a RAG pipeline over one or more knowledge bases. The creator (JWT `sub`) is recorded as `owner_id` for owner-scoping |
+| GET | `/v1/pipeline` | List RAG pipelines — paginated via `limit`/`offset`; returns the shared `{items, total, limit, offset}` envelope. Optional `?owner_id=` filters to that owner's pipelines (+ legacy null-owner ones), used by the orchestrator to owner-scope the `ask_<pipeline>` chat tools |
+| GET | `/v1/pipeline/{pipeline_id}` | Get a single RAG pipeline (404 if unknown) |
+| PATCH | `/v1/pipeline/{pipeline_id}` | Update a pipeline's `name` and/or `knowledge_base_ids` in place (JWT-gated; 404 if the pipeline or a supplied KB is unknown) |
+| DELETE | `/v1/pipeline/{pipeline_id}` | Delete a pipeline (referenced KBs are left intact; 404 if unknown) |
+| POST | `/v1/pipeline/{pipeline_id}/query` | Query a pipeline (retrieval + generation). **Owner-scoped**: only the creator (or the service/admin principals) may query it — a non-owner → **403**. Legacy pipelines with no recorded owner stay open. This protects both a direct call and the OpenWebUI `ask_<pipeline>` chat tool (the gateway forwards the end user's JWT) |
 | POST | `/v1/pipeline/{pipeline_id}/conversations/{conversation_id}/share` | Mark a conversation shared so any authenticated user holding the `conversation_id` can continue it. Owner-only (the true first-writer) — a non-owner → **403** |
 | GET | `/v1/conversations/mine` | List the caller's own conversation history — `{items, total, limit, offset}` envelope, newest first, owner-scoped. Reached through the gateway at `/v1/conversations/mine` |
+| POST | `/v1/public-chat/turn`, `/v1/public-chat/feedback` | Internal: the gateway calls these for anonymous [public chat](#public-chat) turns. Not for direct callers |
 | GET | `/health` | Service health |
 | GET | `/metrics` | Prometheus metrics |
 
-The singular `/knowledge-base[...]` forms still work as deprecated, hidden
-aliases.
+Paths are shown in their canonical `/v1/...` form. The unversioned forms (for
+example `/knowledge-bases`) and the singular `/knowledge-base[...]` forms still
+work as deprecated, hidden aliases, and the gateway's `/v1/rag/*` prefix reaches
+the unversioned forms.
 
 **Document identity:** each upload call gets its own `document_id`, stamped on
 every chunk's Qdrant payload — `source` (filename) alone can't tell two separate
@@ -545,31 +728,31 @@ with a synthetic `legacy:<filename>` id.
 
 ```bash
 # Create a knowledge base, then upload a document into it
-KB=$(curl -s -X POST http://localhost:8004/knowledge-bases \
+KB=$(curl -s -X POST http://localhost:8004/v1/knowledge-bases \
   -H 'Content-Type: application/json' \
   -d '{"name":"My Docs","description":"my documents"}' | jq -r '.id')
 
-curl -X POST "http://localhost:8004/knowledge-bases/$KB/upload" -F "file=@doc.pdf"
+curl -X POST "http://localhost:8004/v1/knowledge-bases/$KB/upload" -F "file=@doc.pdf"
 
 # Query: create a pipeline over the KB, then query it
-PIPE=$(curl -s -X POST http://localhost:8004/pipeline \
+PIPE=$(curl -s -X POST http://localhost:8004/v1/pipeline \
   -H 'Content-Type: application/json' \
   -d "{\"name\":\"my-pipe\",\"knowledge_base_ids\":[\"$KB\"]}" | jq -r '.pipeline_id')
-curl -X POST "http://localhost:8004/pipeline/$PIPE/query" \
+curl -X POST "http://localhost:8004/v1/pipeline/$PIPE/query" \
   -H 'Content-Type: application/json' -d '{"question":"What is in my docs?","top_k":3}'
 ```
 
 ## Model Management — `http://localhost:8005`
 
-Model lifecycle over the Ollama runtime.
+Model lifecycle over the Ollama runtime. Paths are shown in their canonical `/v1/...` form; the unversioned `/models` forms remain as deprecated aliases.
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/models` | List local models (live from Ollama) — paginated via `limit`/`offset`; returns the shared `{items, total, limit, offset}` envelope |
-| POST | `/models` | Pull a model (admin-gated) — body `{"model_id": "..."}`. **201** on a fresh pull, **200** if it already exists. `model_id` rejects a custom registry host (**422**) — only the default Ollama library, optionally namespaced (e.g. `namespace/model:tag`), is supported. Concurrent pulls are capped via `MAX_CONCURRENT_MODEL_PULLS` (default 1) — excess concurrent requests queue rather than racing the shared Ollama volume |
-| GET | `/models/{model_id}` | Model details, including a `capabilities` list (e.g. `tools`) sourced from Ollama's own model metadata — **not** a guarantee the model reliably uses tools when offered them (**404** if unknown) |
-| DELETE | `/models/{model_id}` | Delete a local model (admin-gated; **404** if unknown) |
-| POST | `/models/{model_id}/test` | Quick test-prompt inference — body `{"prompt": "..."}`. JWT-gated (any logged-in user, not admin-only — deliberate self-service intent) and rate-limited (5/min) |
+| GET | `/v1/models` | List local models (live from Ollama) — paginated via `limit`/`offset`; returns the shared `{items, total, limit, offset}` envelope |
+| POST | `/v1/models` | Pull a model (admin-gated) — body `{"model_id": "..."}`. **201** on a fresh pull, **200** if it already exists. `model_id` rejects a custom registry host (**422**) — only the default Ollama library, optionally namespaced (e.g. `namespace/model:tag`), is supported. Concurrent pulls are capped via `MAX_CONCURRENT_MODEL_PULLS` (default 1) — excess concurrent requests queue rather than racing the shared Ollama volume |
+| GET | `/v1/models/{model_id}` | Model details, including a `capabilities` list (e.g. `tools`) sourced from Ollama's own model metadata — **not** a guarantee the model reliably uses tools when offered them (**404** if unknown) |
+| DELETE | `/v1/models/{model_id}` | Delete a local model (admin-gated; **404** if unknown) |
+| POST | `/v1/models/{model_id}/test` | Quick test-prompt inference — body `{"prompt": "..."}`. JWT-gated (any logged-in user, not admin-only — deliberate self-service intent) and rate-limited (5/min) |
 | GET | `/health` | Service health |
 | GET | `/metrics` | Prometheus metrics |
 
@@ -577,21 +760,27 @@ Model lifecycle over the Ollama runtime.
 
 The credential vault behind the [Cloud Providers](using-minder.md#cloud-providers-platformproviders)
 page: per-org, admin-managed connections to an OpenAI-compatible or Anthropic
-vendor — or a self-hosted OpenAI-compatible server (e.g. **vLLM**) flagged
-`is_local`. Management routes require the instance `admin` role **or** an
+vendor — or a self-hosted server (**vLLM**, LM Studio, llama.cpp, TGI or your own
+Ollama) flagged `is_local`. Management routes require the instance `admin` role **or** an
 `owner`/`admin` of the acting org. Stored keys are encrypted at rest; reads
 only ever return a masked form, never the plaintext.
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/v1/model-providers/presets` | Suggested "add provider" configurations (OpenAI, Anthropic, OpenRouter, z.ai, z.ai Coding Plan, **vLLM (self-hosted)**, **Ollama (self-hosted)**, generic OpenAI-compatible) to pre-fill the create form — each carries `adapter`, `is_local`, a `base_url_placeholder`, `requires_api_key`, and help text. Static, credential-free metadata |
-| POST | `/v1/model-providers` | Create a provider — body `{adapter: "openai_compatible"\|"anthropic"\|"ollama", name, base_url?, api_key, is_local?, models?, privacy_acknowledged?, pii_masking_enabled?}` (`adapter` **422** otherwise; `base_url` required for `ollama`; `api_key` required and non-empty even for a keyless vLLM server). `is_local: true` marks self-hosted/local compute (allowed to use private addresses, never PII-masked, satisfies `local_only`). A non-local row must be created with `privacy_acknowledged: true` to be enabled; `pii_masking_enabled` defaults to true. `models` (≤200 ids) is what the pickers list. **201** |
+| GET | `/v1/model-providers/presets` | Suggested "add provider" configurations to pre-fill the create form: OpenAI, Anthropic, OpenRouter, z.ai (pay as you go), z.ai (Coding Plan), and the self-hosted **vLLM**, **LM Studio**, **llama.cpp server**, **TGI** and **Ollama** presets, plus a generic OpenAI-compatible (custom) one. Each carries `adapter`, `is_local`, a `base_url_placeholder`, `requires_api_key` and help text. Static, credential-free metadata |
+| GET | `/v1/model-providers/local-presets` | Hardware-tiered local model presets, the same table `setup.sh model-tier` uses. Pass `ram_gb` (and optionally `vram_gb`, `gpu_count`, `arch`, `unified_memory`) to also get a `recommended_tier`. Static data |
+| POST | `/v1/model-providers` | Create a provider — body `{adapter: "openai_compatible"\|"anthropic"\|"ollama", name, base_url?, api_key?, is_local?, models?, privacy_acknowledged?, pii_masking_enabled?}` (`adapter` **422** otherwise; `base_url` required for `ollama`). `api_key` is required for a cloud (non-`is_local`) provider and optional for an `is_local` one: omit it for a keyless self-hosted server and no `Authorization` header is sent. `is_local: true` marks self-hosted compute (allowed to use private addresses, never PII-masked, satisfies `local_only`); loopback and cloud-metadata addresses are always refused, and `is_local` is refused (**422**) when `SAAS_MODE` is on. A non-local row must be created with `privacy_acknowledged: true` to be enabled; `pii_masking_enabled` defaults to true. `models` (≤200 ids) is what the pickers list. **201** |
 | GET | `/v1/model-providers` | List this org's providers (keys masked) |
+| GET | `/v1/model-providers/usage` | Total input and output tokens and call count recorded for the caller's own tenant, optionally within `start_date`/`end_date` |
 | GET | `/v1/model-providers/{id}` | One provider (masked). **404** if not in the caller's tenant |
 | PATCH | `/v1/model-providers/{id}` | Update `name`/`base_url`/`api_key`/`enabled`/`is_local` (partial) |
 | DELETE | `/v1/model-providers/{id}` | Delete a provider. **204**; **404** if unknown |
-| POST | `/v1/model-providers/{id}/test` | Verify stored credentials with one minimal real completion against the adapter's first catalog model → `{ok, detail}`. Works even on a disabled provider. Rate-limited 5/min **unless** the row is `is_local` |
-| POST | `/v1/model-providers/generate` | Run one completion through an enabled provider — body `{model_id: "remote:<provider_id>:<catalog_id>", prompt, context?, temperature?}`. Any authenticated tenant member (not admin-only). Rate-limited 5/min **unless** the provider is `is_local` (local compute has no per-call cost) |
+| POST | `/v1/model-providers/{id}/test` | Verify stored credentials with one minimal real completion against the provider's first model → `{ok, detail}`. Works even on a disabled provider. Rate-limited 5/min for a cloud provider, 30/min (a separate bucket) for an `is_local` one |
+| POST | `/v1/model-providers/{id}/fetch-models` | List the models the provider's own endpoint serves, so you can pick which to save. Same rate limits as `/test` |
+| POST | `/v1/model-providers/rotate` | Re-encrypt this org's stored keys under the current primary `MODEL_PROVIDER_VAULT_SECRET` entry; returns `{rotated, unreadable}`. See [Security](security.md#vault-and-license-secrets-never-clear) |
+| POST | `/v1/model-providers/generate` | Run one completion through an enabled provider — body `{model_id: "remote:<provider_id>:<catalog_id>", prompt, context?, temperature?}`. Any authenticated tenant member (not admin-only). Rate-limited 5/min **unless** the provider is `is_local` |
+| POST | `/v1/model-providers/chat` | Chat completion through an enabled provider, with tool definitions translated per vendor. Used by the orchestrator |
+| GET | `/v1/model-locality?model_id=` | Whether a model id is local compute (`{model_id, is_local}`). Services call it before sending a `local_only` knowledge base's content to a `remote:` model. Any member; carries no credential or URL |
 
 ## TTS / STT — via the gateway (`/v1/tts`, `/v1/stt`)
 
@@ -665,12 +854,13 @@ Errors follow the standard FastAPI shape:
 | Status | Meaning |
 |--------|---------|
 | 200 | Success |
+| 202 | Accepted: a background job was queued, or a tool call is waiting for approval (see [Tool approvals](#tool-approvals)) |
 | 400 | Bad request — semantically invalid input the route rejected (e.g. undecodable audio, an unknown config key) |
 | 401 | Unauthorized (missing/invalid JWT) |
 | 403 | Forbidden — authenticated but not permitted (insufficient license tier, a disabled account, or a disabled plugin) |
 | 404 | Not found — unknown resource, **or a malformed id** (e.g. a non-UUID `plugin_id` is treated as "no such plugin", not a server error) |
 | 422 | Validation error — FastAPI request-body/param validation (wrong type, out-of-range, empty required field) |
-| 429 | Rate limited (Redis-backed, 60s window; fail-open) |
+| 429 | Rate limited (Redis-backed, 60s window; fail-open), with a `Retry-After` header |
 | 500 | Internal server error — a genuine bug |
 | 503 | Service unavailable — a required downstream/backend (DB, Ollama, Qdrant, …) is unreachable; **retryable** |
 
@@ -688,11 +878,12 @@ Errors follow the standard FastAPI shape:
 
 ## Plugin system
 
-Plugins are either declarative **manifests** (no plugin code runs) or **module
-plugins**: Python classes the registry imports and runs in-process. Module
-plugins are not sandboxed; they get a least-privilege database role and are
-reviewed before they reach the catalog. See the
-[plugin trust model](security.md#plugin-trust-model).
+A plugin is either a declarative **manifest** or a **code plugin**. Both run out
+of process, in a `plugin-runner` container that only the plugin registry calls:
+declarative (T0) manifests in the `declarative` group, which runs no plugin
+code, and catalog code plugins in the `trusted` or `privileged` group. The
+registry keeps every policy decision and calls the runner only after its own
+checks. See the [plugin trust model](security.md#plugin-trust-model).
 
 Lifecycle (as implemented):
 
@@ -702,15 +893,17 @@ register() → initialize() (READY) → health_check() (60s loop)
            + analyze()
 ```
 
-Plugins advertise **AI tools** for Ollama function-calling. A module plugin
-declares an `AI_TOOLS` class attribute (a manifest plugin uses its `ai_tools`
-key), each tool being:
+Plugins advertise **AI tools** for Ollama function-calling. A code plugin
+declares an `AI_TOOLS` class attribute (a manifest plugin declares `tools` in
+its manifest), each tool being:
 
 ```json
-{ "name": "...", "description": "...", "parameters": { "type": "object", "properties": {} }, "action": "...", "required_tier": "community" }
+{ "name": "...", "description": "...", "parameters": { "type": "object", "properties": {} }, "action": "...", "effect": "read", "required_tier": "community" }
 ```
 
-`action` maps to `POST /v1/plugins/<plugin>/actions/<action>`. Optional
+`action` maps to `POST /v1/plugins/<plugin>/actions/<action>`. `effect`
+(`read` | `write` | `send` | `destructive`) tells Minder whether a call needs
+the user's approval: see [Tool approvals](#tool-approvals). Optional
 `required_tier` (`free` | `community` | `pro` | `enterprise`, default
 `community`) sets the license tier the marketplace records for the tool — the
 plugin-registry enforces it at execution time (a user below that tier gets a 403
@@ -719,9 +912,11 @@ plugin-registry enforces it at execution time (a user below that tier gets a 403
 defs; drive the end-to-end loop via `POST /v1/ai/chat/completions` with
 `"minder_tools": true` (see the API Gateway section).
 
-Plugins receive backend handles in their config: `redis`, `influxdb`, and,
-when the plugin role is configured, a `database` handle scoped to the
-`plugin_data` schema (see the [plugin contract](plugins/contract.md)). See the
+A plugin that needs the platform (its secrets, other plugins, document indexing,
+time-series data) asks for it through the platform context (`self.ctx`), and the
+registry checks a per-invocation grant on every call. The only backend handle a
+runner-hosted plugin receives is `database`: a role of its own, confined to its
+own schema (see the [plugin contract](plugins/contract.md)). See the
 [Plugins](plugins/index.md) documentation for how to write and publish one.
 
 ## Monitoring

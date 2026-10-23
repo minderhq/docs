@@ -1,16 +1,24 @@
 # Authentication
 
-Minder has a **single login entry point**: the "Log in" button in the top-right
-of the control-plane UI. Clicking it takes you to Authelia's own login page (the
-platform's identity provider); coming back mints a Minder session automatically.
-There is no separate Minder-specific username/password form and no scattered
-per-page login boxes.
+Minder has one sign-in page. The **Log in** button in the top-right of the
+control-plane UI opens it. The page offers a username and password form for
+**local accounts**, and a **Sign in with SSO** button that takes you to
+Authelia's own login page (the platform's identity provider) and brings you back
+with a Minder session. Whether you can create a local account on the page
+depends on who may join the instance (see [Registration
+modes](#registration-modes)).
 
 Under the hood, Authelia issues a verified identity via **OIDC**, the **API
 gateway** (`minder-api-gateway`, port `8000`) exchanges that for its own **JWT**,
 and every other service trusts that JWT. Authelia also gates several other web
 UIs (Grafana, OpenWebUI, MinIO, Jaeger) directly at the reverse-proxy layer,
 independent of Minder's own login — see [Authelia](#authelia-sso-oidc) below.
+
+!!! note "Who becomes an administrator"
+    A local account is always created with the `user` role. The instance
+    `admin` role comes only from Authelia's `admins` group, so the first
+    administrator signs in with SSO (the `admin` account setup creates in
+    Authelia).
 
 !!! note "Self-hosted deployment"
     This page describes a self-hosted deployment. Authorization is checked per
@@ -39,7 +47,12 @@ independent of Minder's own login — see [Authelia](#authelia-sso-oidc) below.
                                          server-to-server)
 ```
 
-1. The client's "Log in" button links straight to `GET /v1/auth/oidc/login`.
+1. The sign-in page's **Sign in with SSO** button goes to
+   `GET /v1/auth/oidc/login`. The client adds a one-time nonce (`cnonce`) that
+   it also stores in the browser, so it only accepts a token that completes a
+   sign-in this browser started. Setup sets the button's target
+   (`CLIENT_OIDC_LOGIN_URL`) when `.env` has no value for it; an empty value
+   hides the button.
 2. That redirects your browser to Authelia. If you already have an Authelia
    session (e.g. you're logged into Grafana/OpenWebUI, or the client's own
    forward-auth gate already established one), this step can complete silently
@@ -75,11 +88,10 @@ A locally-registered account changes its password through Minder instead — see
 [Password management](#password-management). See
 [Using Minder](using-minder.md) for the full UI tour.
 
-### Local register/login (for scripting and dev)
+### Local register/login
 
-The original username/password endpoints still exist and mint the exact same JWT
-shape — useful for scripts, CI, or local dev without a browser — but the UI no
-longer exposes a form for them. They are also what the [CLI](cli.md) uses.
+The username/password endpoints mint the exact same JWT shape as SSO. The
+sign-in page's form uses them, and so do scripts, CI and the [CLI](cli.md).
 
 ```http
 POST /v1/auth/register
@@ -94,6 +106,9 @@ Content-Type: application/json
 
 { "username": "alice", "password": "CHANGEME" }
 ```
+
+`POST /v1/auth/register` is gated by the instance's registration mode (see
+below), and also takes an optional `invite_token`.
 
 **Response (same shape from either login path):**
 
@@ -116,6 +131,37 @@ Content-Type: application/json
 `expires_in` is in seconds: `JWT_EXPIRATION_MINUTES × 60` (`900` by default).
 `must_change_password` is `true` after an administrator has reset the password
 (see [Password management](#password-management)).
+
+### Registration modes {#registration-modes}
+
+`INSTANCE_REGISTRATION_MODE` decides who can create a local account. Setup asks
+once during `install` (`--who-can-join invite|sso_only|open`) and writes it:
+
+| Mode | Behavior |
+|------|----------|
+| `invite` (default when unset) | `POST /v1/auth/register` needs a valid, unexpired `invite_token`. Without one it returns `403` `invite_required`; a bad token returns `403` `invite_invalid`. |
+| `sso_only` (`closed` also works) | Local self-registration is off (`403`). People sign in through SSO. |
+| `open` | Anyone can register, and each new account gets its own personal workspace while `SELF_SERVE_PERSONAL_ORGS` allows it. |
+
+An account created through an invite gets the invite's organization as its home
+organization. `GET /v1/auth/capabilities` reports the mode, and the sign-in page
+shows only what that mode allows. An unknown value stops the gateway at
+startup.
+
+### Email verification {#email-verification}
+
+With `EMAIL_VERIFICATION_REQUIRED` on, a new local account must open the link
+it is emailed before it can use anything. Until then it can sign in, but any
+request outside a small allowlist (resend, change-password, reading its own
+profile) returns `403` `email_verification_required`. The link is valid for
+`EMAIL_VERIFY_TOKEN_TTL_HOURS` (24 to 72, default 24) and is confirmed with
+`POST /v1/auth/verify-email`. `POST /v1/auth/verify-email/resend` sends a new
+link and invalidates older ones, at most once per 60 seconds and 5 per day per
+account (`429` with `Retry-After` over that).
+
+When the setting is empty, verification is on only with `SAAS_MODE=true` and
+email enabled. Startup refuses `true` while email is off. See
+[Transactional email](email.md).
 
 ### Moving a local account to SSO {#moving-a-local-account-to-sso}
 
@@ -230,11 +276,33 @@ without a token. To make an anonymous request, leave the `Authorization`
 header out instead of sending a stale token. A request with two
 `Authorization` headers gets **`400`**.
 
-### JWT secret
+### JWT signing and keys {#jwt-signing-and-keys}
 
-Tokens are signed with `JWT_SECRET`, which lives in the root `.env` file. The
-setup CLI auto-generates a strong value if you leave the placeholder in place.
-The same secret must be consistent across services that validate tokens.
+The gateway signs access tokens with **EdDSA**, using an Ed25519 key pair that
+setup generates into the root `.env` (`JWT_SIGNING_PRIVATE_KEY` and
+`JWT_PUBLIC_KEYS`). Only the gateway receives the private key. Every other
+service gets only the public keys, so it can verify a token but cannot sign
+one. `JWT_SIGNING_ALG` chooses what the gateway issues: empty means EdDSA (HS256
+only while no key is provisioned), and `EdDSA` or `HS256` pins it. See
+[Security](security.md#signing-key-rotation) for rotation.
+
+`JWT_SECRET` is the **legacy HS256 key**, and it exists on the gateway only.
+It lets the gateway keep accepting sessions that were created before the EdDSA
+upgrade, inside a bounded window, so users aren't signed out at the upgrade:
+
+- The gateway verifies an HS256 token, then forwards an EdDSA copy of it to the
+  other services. They never see an HS256 token, and they refuse one that
+  reaches them.
+- `JWT_HS256_VERIFY` controls the window. `auto` (default) accepts HS256 until
+  `JWT_HS256_ACCEPT_UNTIL`; `refuse` closes it now; `accept` keeps HS256 open
+  indefinitely, as a rollback path (pinning `JWT_SIGNING_ALG=HS256` needs it).
+- On the first setup run after the upgrade, setup writes
+  `JWT_HS256_ACCEPT_UNTIL` as now plus `JWT_EXPIRATION_MINUTES`,
+  `JWT_REFRESH_GRACE_MINUTES` and one hour (about 13 hours 15 minutes with the
+  defaults). A fresh install gets "now", so it never accepts HS256. Edit the
+  value to shorten or extend the window.
+- With `auto` and no public keys provisioned, HS256 stays accepted, because
+  EdDSA could not be issued and refusing it would lock everyone out.
 
 ## Password management
 
@@ -376,7 +444,7 @@ independent things both come from it:
 !!! important "Real DNS + TLS required for browser SSO"
     Full browser SSO needs real DNS and valid TLS on the deployment. Over plain
     `localhost` or a bare LAN IP, the SSO button is hidden and you use a
-    [local account](#local-registerlogin-for-scripting-and-dev) instead — see
+    [local account](#local-registerlogin) instead — see
     [Using Minder](using-minder.md).
 
 What Authelia provides:
@@ -428,7 +496,9 @@ setup CLI's start command to generate and print a new one.
   removal or suspension). The response `detail` says which.
 - A stale token gets a `401` even on routes that work without a token. Leave
   the `Authorization` header out to call them anonymously.
-- Confirm `JWT_SECRET` is set consistently across services.
+- Confirm every service has the same `JWT_PUBLIC_KEYS` (setup writes it), and
+  that a token signed with the legacy HS256 key is not past the end of the
+  window (`JWT_HS256_ACCEPT_UNTIL`).
 - Check the gateway logs:
 
   ```bash
@@ -437,8 +507,11 @@ setup CLI's start command to generate and print a new one.
 
 ### Rate limited (429)
 
-The gateway applies Redis-backed rate limiting on a 60-second window (fail-open).
-Confirm Redis is healthy:
+The gateway applies Redis-backed rate limiting on a 60-second window
+(fail-open). Anonymous callers get `RATE_LIMIT_PER_MINUTE` (60) per client IP,
+signed-in callers get `RATE_LIMIT_AUTHENTICATED_PER_MINUTE` (300) per IP and
+user, and `/v1/auth/login` and `/v1/auth/register` are always counted per IP
+only. A `429` carries a `Retry-After` header. Confirm Redis is healthy:
 
 ```bash
 docker exec -it minder-redis redis-cli -a "$REDIS_PASSWORD" ping

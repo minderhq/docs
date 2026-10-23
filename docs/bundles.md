@@ -7,17 +7,26 @@ bundles, **not** by editing Compose files. This keeps a small deployment light
 
 ## The bundles
 
-- **`core`** — the always-on kernel (the API gateway, plugin registry,
-  platform-ops, marketplace, the data stores, the reverse proxy and SSO). It
-  can't be disabled.
-- **`inference`** — the local Ollama LLM runtime (see [AI setup](ai-setup.md)).
-- **`rag`** — the RAG pipeline: knowledge bases, ingestion, and retrieval
-  (see [RAG methods](rag-methods.md)).
+- **`core`** — the always-on kernel (the API gateway, orchestrator, plugin
+  registry, platform-ops, marketplace, the web client, PostgreSQL, Redis, Neo4j,
+  MinIO, RabbitMQ, the schema registry, InfluxDB and its `timeseries-gateway`,
+  the reverse proxy and SSO). It can't be disabled.
+- **`inference`** — the local Ollama LLM runtime and model management (see
+  [AI setup](ai-setup.md)).
+- **`rag`** — the RAG pipeline and Qdrant: knowledge bases, ingestion, and
+  retrieval (see [RAG methods](rag-methods.md)).
 - **`graph-rag`** — the knowledge-graph service (spaCy NER + Neo4j).
-- **`chat`** — the OpenWebUI chat frontend.
+- **`chat`** — the OpenWebUI chat frontend (it also needs Ollama and the RAG
+  pipeline, so enabling it brings those up).
 - **`voice`** — text-to-speech and speech-to-text.
 - **`monitoring`** — the observability stack: Prometheus, Grafana, Alertmanager,
-  Jaeger, and the exporters (see [Monitoring](monitoring.md)).
+  Jaeger, the OpenTelemetry Collector, Telegraf, and the exporters (see
+  [Monitoring](monitoring.md)).
+
+The `plugin-runner` containers that host plugin code are not a bundle: setup
+always layers them on, and they start with the platform. The Ollama and
+text-to-speech failover routers are a mode, not a bundle (`ollama-mode` and
+`tts-stt-mode`).
 
 ## Choosing a starting set
 

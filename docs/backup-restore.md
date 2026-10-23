@@ -13,13 +13,22 @@ restore, and the retention policy you must layer on top.
 
 ## What is captured
 
-Persistent state lives in two places, both covered by a backup:
+A backup is one archive, `backups/minder-<timestamp>.tar.gz`, in your Minder
+checkout, readable only by its owner (mode `600`). It holds:
 
-- **Docker named volumes** — `postgres_data`, `neo4j_data`, `qdrant_data`,
-  `redis_data`, `rabbitmq_data`, `minio_data`, `ollama_data`, `influxdb_data`,
-  and the rest.
-- **MinIO object-store buckets**, including the `backup-archives` bucket where
-  archives are kept.
+- your root `.env` (so it contains every secret: guard the archive like the
+  file itself);
+- a PostgreSQL dump (`pg_dumpall`);
+- a Neo4j dump;
+- the InfluxDB data directory;
+- a Qdrant snapshot;
+- the MinIO data directory (the object store);
+- the RabbitMQ definitions.
+
+A store that isn't running is skipped, and the final line of the command lists
+what was **not** captured. **Redis** (a cache) and the **Ollama model volume**
+are not backed up; models can be pulled again. After each backup, setup keeps
+the 7 newest archives and deletes the rest.
 
 See [Production](production.md#backups) for the same list in the operational
 context.
@@ -51,7 +60,12 @@ context.
 The `/v1/backups` API is a **job-queue front end** for the host-level
 backup/restore tooling — it is **not** a Docker orchestrator, and the router
 never talks to Docker directly. It reads and writes small JSON job files in a
-bind-mounted directory; a **host-side cron job** does the real work. Enqueuing a
+bind-mounted directory; a **host-side job** does the real work. That job is
+`bash setup.sh backup-watch`, which processes pending jobs from the UI and API
+and must be scheduled on the host (for example every minute from cron). Run it
+as the same OS user that owns the `backups/` directory (not root), or the web
+UI can't see the archives it makes. Setup does not schedule it for you: until
+you do, queued jobs stay `pending`. Enqueuing a
 backup or restore returns **`202`** with a job record, and you poll the job
 endpoints for status.
 
@@ -110,8 +124,9 @@ old-format data directory. Follow the dedicated procedure in
 ## Off-device retention
 
 !!! warning "Snapshots are not a retention policy"
-    `bash setup.sh backup`/`restore` snapshot state into `backup-archives`, but
-    they do **not**, by themselves, ship it off-box. For production, **establish
+    `bash setup.sh backup`/`restore` write the archive into the `backups/`
+    directory of your checkout, but they do **not**, by themselves, ship it
+    off-box. For production, **establish
     and test a real retention policy with an off-device copy** — an archive that
     only lives on the same host does not survive that host being lost.
 

@@ -40,10 +40,11 @@ If a capability can't be run end-to-end and shown working, it isn't done.
    stack, fills secrets, and self-heals. Capability is toggled by **bundles**, not
    by editing compose files.
 3. **Extensible, with an explicit trust model.** Simple plugins are declarative
-   manifests that run no plugin code. Richer plugins are Python that runs
-   in-process, so they are reviewed before they reach the catalog and get
-   least-privilege credentials (their own database schema, no access to platform
-   tables). We say plainly what is and isn't isolated; see the
+   manifests that run no plugin code. Richer plugins are Python that runs out of
+   process in a locked-down runner container with no platform secrets, so they
+   are reviewed before they reach the catalog and get least-privilege credentials
+   (their own database schema, no access to platform tables). We say plainly what
+   is and isn't isolated; see the
    [plugin trust model](security.md#plugin-trust-model).
 4. **Runs on modest hardware.** ARM / Raspberry Pi is a first-class target, not an
    afterthought. Features are chosen and tuned to fit (e.g. Piper for offline TTS,

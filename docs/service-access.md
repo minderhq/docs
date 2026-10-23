@@ -11,9 +11,10 @@ For the full deployment topology and hardening steps, see
 
 ## The access model
 
-A full install runs on the order of three dozen containers (a couple are
-failover-mode sidecars that stay inactive by default), all on the internal
-`minder-network` Docker network. There are three ways to reach a service:
+A full install runs about forty containers, counting the plugin runners (a couple
+are failover-mode sidecars that stay inactive by default), all on internal Docker
+networks (`minder-network`, and narrower ones for the plugin runners and
+time-series data). There are three ways to reach a service:
 
 1. **Loopback host port** — a port published on `127.0.0.1`. Reachable **on the
    box** (`curl http://localhost:<port>`) for ops and health, but **not** from
@@ -71,9 +72,14 @@ its optional failover profile is active.
 | Grafana | `minder-grafana` | 3000 |
 | Prometheus | `minder-prometheus` | 9090 |
 | Alertmanager | `minder-alertmanager` | 9093 |
-| InfluxDB | `minder-influxdb` | 8086 |
-| OTel Collector | `minder-otel-collector` | OTLP ingestion (gRPC/HTTP) — trace ingestion, not a browsable UI |
+| OTel Collector | `minder-otel-collector` | 4317 (OTLP gRPC), 4318 (OTLP HTTP), 8888 (its own metrics) — ingestion, not a browsable UI |
 | Traefik | `minder-traefik` | 80, 443, 8081 (dashboard, IP-whitelisted) |
+
+InfluxDB publishes no host port by default. It sits on its own internal network
+behind `timeseries-gateway`, the only process that holds its admin token. With
+`MINDER_DEV_PORTS=1`, `127.0.0.1:8086` is the gateway's InfluxDB-compatible API,
+and you authenticate with a per-consumer `TIMESERIES_TOKEN_*` credential, never
+the admin token.
 
 The Jaeger tracing UI has **no loopback port**: its base image ships with no
 authentication of its own, so publishing it on the host would expose the full
@@ -131,6 +137,8 @@ container name, or through a reverse-proxy route where one exists (see above).
 | MinIO | `minder-minio` | S3-compatible object store; console via `minio.minder.local` |
 | RabbitMQ | `minder-rabbitmq` | Message queue; management UI via `rabbitmq.minder.local` |
 | Schema Registry | `minder-schema-registry` | Apicurio schema registry |
+| InfluxDB | `minder-influxdb` | Time series, behind `minder-timeseries-gateway` |
+| Plugin runners | `minder-plugin-runner-trusted`, `-privileged`, `-declarative` | Run plugin code out of process; only plugin-registry calls them. See [Security](security.md#plugin-trust-model) |
 | Ollama | `minder-ollama` | Local LLM runtime (local inference mode only) |
 | Prometheus exporters | postgres / redis / rabbitmq / node / cadvisor / blackbox | Scraped by Prometheus |
 
@@ -158,10 +166,10 @@ docker logs minder-<service> --tail 100 -f
 ```
 
 !!! note "\"no healthcheck\" is not \"unhealthy\""
-    A few containers (the OTel collector and the Redis and RabbitMQ exporters)
-    ship **without a healthcheck by design**, because their base images lack the
-    tooling a probe would need. They show blank health in `docker ps` — confirm
-    them from their logs, not their health status.
+    A few containers (the OTel collector, the Redis exporter, Authelia, the Docker
+    socket proxy and the bundle reconciler) have **no Docker healthcheck
+    configured**. They show blank health in `docker ps` — confirm them from their
+    logs, not their health status.
 
 ## Debugging access
 

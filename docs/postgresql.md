@@ -12,12 +12,10 @@ entrypoint (see [Self-hosting](self-hosting.md)). PostgreSQL runs as the
 `minder-postgres` container on the internal Docker network; its port is not exposed
 to the LAN by default.
 
-!!! note "Running against an external / managed PostgreSQL"
-    You can point Minder at a managed PostgreSQL provider (AWS RDS, Neon, Supabase,
-    Google Cloud SQL, and others) instead of the bundled container, entirely through
-    environment variables. See [External services](external-services.md) for the
-    connection variables and the local-to-external migration steps. The schema
-    migration procedure below applies the same way against an external database.
+!!! note "External / managed PostgreSQL is not supported through `.env`"
+    The application services reach the bundled `minder-postgres` container by a
+    fixed name set in the Compose file, and `.env` has no setting that repoints
+    them at a managed provider. See [External services](external-services.md).
 
 ## Databases
 

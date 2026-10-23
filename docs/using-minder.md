@@ -14,15 +14,20 @@ bases, pipelines, the graph, plugins, models, voice, and admin.
 
 ## Signing in
 
-Two ways in, and only one works until you have a real domain:
+The sign-in page (`/login`, opened by the **Log in** button) offers two ways in:
 
-- **Local account** — a username/password form, with a link to switch to
-  "Create an account" (username + email + password) if you don't have one yet.
+- **Local account** — a username/password form. If the instance's
+  [registration mode](authentication.md#registration-modes) allows it, a link
+  switches to "Create an account" (username + email + password); in `invite`
+  mode sign-up needs an invite link, and in `sso_only` mode there is no sign-up.
+  A **Forgot password?** link appears when [transactional email](email.md) is on.
   This is the path that works over `localhost` or a bare LAN IP.
-- **SSO (Authelia)** — a "Sign in with SSO" button, shown *only* once the
-  deployment sets `VITE_OIDC_LOGIN_URL` (a real Traefik hostname + TLS). Over
-  plain `localhost`/LAN access it's hidden rather than shown as a dead link,
-  since the OIDC redirect can't resolve `*.minder.local` without real DNS.
+- **SSO (Authelia)** — a "Sign in with SSO" button, shown only when the client
+  was built with an SSO target (`CLIENT_OIDC_LOGIN_URL`, which setup fills in
+  unless you set it empty). The SSO redirect needs the `*.minder.local` hosts or
+  real DNS and TLS to complete, so on a plain `localhost` or LAN address use a
+  local account. A local account is always a plain `user`; the first
+  administrator signs in with SSO.
 
 If an SSO sign-in fails partway (denied consent, expired code), you're sent
 back to the login form with the reason shown — it doesn't fail silently.
@@ -106,14 +111,19 @@ and a "what's actually active" view:
 
 | Available (browse/install) | Installed (manage) |
 |---|---|
-| `/plugins/available` | `/plugins/installed` |
-| `/ai-tools/available` | `/ai-tools/installed` |
-| `/bundles/available` | `/bundles/installed` |
+| `/marketplace/discover/plugins` | `/marketplace/installed/plugins` |
+| `/marketplace/discover/ai-tools` | `/marketplace/installed/ai-tools` |
+| `/marketplace/discover/service-bundles` | `/marketplace/installed/service-bundles` |
+
+Older URLs such as `/plugins/available` and `/bundles/installed` redirect to
+these pages.
 
 - **Plugins** — browsing is open to everyone; installing, enabling, disabling,
   uninstalling, or editing a plugin's config needs login (installs are
   per-user).
-- **AI Tools** — the function-calling tools an LLM can actually call.
+- **AI Tools** — the function-calling tools an LLM can actually call. A tool
+  that changes or sends data pauses for your approval before it runs (see
+  [Tool approvals](api-reference.md#tool-approvals)).
   "Available" is Marketplace's durable catalog (includes tools from plugins
   that aren't currently running, and can lag slightly behind "Installed");
   "Installed" is what's callable *right now*, from plugins Plugin Registry
@@ -155,12 +165,14 @@ to any logged-in user; pulling and deleting a model need an admin account.
 
 ### Cloud Providers (`/platform/providers`)
 
-Connect an external OpenAI-compatible provider (OpenAI, z.ai, OpenRouter,
-Together, Azure OpenAI, …), Anthropic, or a **self-hosted** OpenAI-compatible
-server such as **vLLM**, so its models appear alongside your local Ollama
-models. Admin-only, per-organization, and opt-in — nothing here is on by
-default, and your local setup keeps working exactly as before if you never add
-one.
+The **Providers & defaults** page. Connect an external OpenAI-compatible
+provider (OpenAI, z.ai, OpenRouter, Together, …), Anthropic, or a
+**self-hosted** server (vLLM, LM Studio, llama.cpp, TGI or your own Ollama), so
+its models appear alongside your local Ollama models, and pick a default model
+per task. It is shown to members with the `org.ai.manage` permission, is
+per-organization, and is opt-in — nothing here is on by default, and your local
+setup keeps working exactly as before if you never add one. See
+[Connect your models](model-providers.md).
 
 To connect a provider, pick a **provider type** from the dropdown — it
 pre-fills the form for that setup:
@@ -168,35 +180,36 @@ pre-fills the form for that setup:
 - **OpenAI-compatible** — OpenAI itself, or any other endpoint speaking the
   same chat-completions API (z.ai, OpenRouter, Together, Azure OpenAI, a
   self-hosted gateway). Set a base URL for a non-default vendor.
-- **vLLM (self-hosted)** — a vLLM server you run yourself, reached through the
-  same OpenAI-compatible adapter at your own base URL (e.g.
-  `http://<your-vllm-host>:8000/v1`). It's flagged as **local compute**, which
-  exempts it from the cloud rate limit described below.
+- **vLLM, LM Studio, llama.cpp server, TGI and Ollama (self-hosted)** — a server
+  you run yourself, at your own base URL (e.g. `http://<your-vllm-host>:8000/v1`).
+  These are flagged as **local compute**, which exempts them from the cloud rate
+  limit described below.
 - **Anthropic** — Anthropic's hosted Claude models.
 
 Then give it a name, optionally set the base URL, and paste the API key. The
 key is encrypted at rest and never shown again in full — only a masked form
 (e.g. `sk-...ab12`).
 
-!!! note "The API-key field is required even for vLLM"
-    A vLLM server started without `--api-key` accepts any bearer token, so the
-    form pre-fills a `not-required` placeholder and any non-empty value works —
-    but the field itself is still required (paste any placeholder). Minder
-    doesn't special-case an empty key.
+!!! note "The API key is optional for self-hosted servers"
+    A self-hosted (local) provider can be saved without a key, for a server that
+    has no authentication; Minder then sends no `Authorization` header. A cloud
+    provider always needs a key.
 
 Each provider row has a **Test** button that makes one minimal real completion
-call against the provider's first catalog model, so a bad key or an unreachable
-endpoint surfaces here rather than mid-chat. You can also disable a provider
-without deleting it, or delete it outright; there's no separate "edit" yet, so
-to change a name, base URL, or key, delete and re-add.
+call against the provider's first model, so a bad key or an unreachable
+endpoint surfaces here rather than mid-chat, and a **Fetch models** action that
+lists what the server serves so you can save the list. You can also disable a
+provider without deleting it, rename it, replace its key or edit its model list,
+or delete it outright.
 
 !!! warning "Hosted vendors leave your machine and are metered — local ones aren't"
     Once connected, prompts routed to a **hosted** provider's models (OpenAI,
     Anthropic, …) leave your machine and are billed by the vendor — the
     opposite of the local-only default. To bound that cost, calls to a hosted
     provider's models (both inference and the **Test** button) are rate-limited
-    to 5/min. A provider marked **local** (a vLLM row) is your own compute with
-    no per-call cost, so it is exempt from that limit.
+    to 5/min. A provider marked **local** (a self-hosted row) is your own compute
+    with no per-call cost, so inference is exempt, and **Test** has a looser
+    30/min limit.
 
 ### Voice (`/platform/voice`)
 
@@ -224,46 +237,65 @@ the job-queue model, and the guarded restore.
 See [Organizations & teams](organizations-teams.md) for the roles, guards, and
 invite flow behind these pages.
 
-- **Teams** (`/teams`) — group users into teams. Any logged-in user can
+- **Teams** (`/platform/teams`) — group users into teams. Any logged-in user can
   create one (and becomes its team admin); managing an existing team's
   membership or settings needs that team's own admin, or an instance admin.
-- **Users** (`/users`, admin-only) — change a user's role. Accounts linked to
-  Authelia SSO show their role read-only, since it's re-derived from
-  Authelia's group membership on every login — change it there instead.
-- **Organization** (`/organization`) — your organization, its members, and
-  switching between orgs you belong to (invite links can be copied or
-  revoked here too).
+- **Users** (`/platform/users`, Platform Admin only) — list users across every
+  organization, change a role, reset a password, deactivate or reactivate an
+  account. Accounts linked to Authelia SSO show their role read-only, since it's
+  re-derived from Authelia's group membership on every login — change it there
+  instead.
+- **Organization** (`/organization`) — your organization's settings, and
+  switching between orgs you belong to.
+- **People** (`/organization/people`) — the organization's members (roles,
+  teams, suspend, remove), **Invites** (invite one person or a list; pending
+  invites; copy or revoke a link) and **Domains** (which email domains may join).
+  Needs `org.members.manage`; the domain list needs `org.settings.manage`.
+- **Requests** (`/requests`) — what you asked for (join an organization, an
+  invite, a team, a plugin, a model or a plan), and requests waiting for your
+  decision. See
+  [Access requests](organizations-teams.md#access-requests-and-the-waiting-room).
+- **Public chat** (`/rag/public-chat`) — expose a pipeline as an anonymous
+  chatbot endpoint, review its conversations and feedback. Needs
+  `org.chatbots.manage`.
 - **Billing** (`/billing`) — your organization's current plan and subscription
   (tier, renewal date). Upgrades and payment-method changes hand off to the
   billing provider's secure hosted pages / customer portal rather than taking
-  card details in-app. Org owner/admin.
-- **All Organizations** (admin-only) — every organization on the instance,
-  and a form to provision a new one (it gets a primary owner and a default
-  team automatically).
-- **Invitation** — the page an invite link opens to, for accepting it.
-- **Audit Log** (admin-only) — the append-only record of privileged actions
-  (role changes, org/member management, plugin review, and more), with
-  actor, time, source, and before/after state.
+  card details in-app. Needs `org.billing.view`.
+- **All Organizations** (`/organizations`, Platform Admin only) — every
+  organization on the instance, and a form to provision a new one (it gets a
+  primary owner and a default team automatically).
+- **Invitation** (`/invite/<token>`) — the page an invite link opens to, for
+  accepting it.
+- **Audit Log** (`/audit`) — the append-only record of privileged actions (role
+  changes, org/member management, plugin review, and more), with actor, time,
+  source, and before/after state. A Platform Admin sees every entry; anyone else
+  with `org.audit.view` sees their active organization's entries (and its
+  sub-organizations').
 
 ### Settings (`/settings`)
 
-Your own account as Minder currently sees it (username, email, role) and a
-log-out action. A note points SSO users at Authelia's own portal for changing
-a password or display name — this page doesn't do that, since Authelia is the
-actual identity source for SSO logins.
+Your own account as Minder currently sees it (username, email, role), plus a
+Minder-side display name, theme and language (English or Turkish) that follow
+your account across devices, and a log-out action. A local account changes its
+password here. For an SSO account the page links to Authelia's own portal
+instead, since Authelia is the actual identity source for SSO logins.
 
 ## Marketplace: submitting & reviewing plugins
 
 A lighter-touch corner of the UI, mostly relevant once you're publishing or
 moderating plugins rather than just using the platform:
 
-- **Submit a Plugin** — publish your own plugin to the marketplace. Every
-  submission starts as a private draft and goes through admin review before
-  anyone else can see or install it.
-- **Review Queue** (admin-only) — developer-submitted plugins waiting on
-  review, oldest first.
-- **My Licenses** — the plugin tiers licensed to your account. Licenses are
-  currently granted by an administrator; there's no self-service upgrade yet.
+- **Publish → Submissions** (`/marketplace/publish/submissions`) — publish your
+  own plugin to the marketplace. Every submission starts as a private draft and
+  goes through admin review before anyone else can see or install it.
+- **Publish → Submission review** (Platform Admin only) — developer-submitted
+  plugins waiting on review, oldest first.
+- **My Licenses** (`/billing/licenses`) — the plugin tiers licensed to your
+  account. Licenses are currently granted by an administrator; there's no
+  self-service upgrade yet.
+- **Plugin sources** (`/settings/sources`, Platform Admin only) — the repositories
+  plugins come from, with their linked plugins.
 
 ---
 

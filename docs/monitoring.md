@@ -19,9 +19,9 @@ through `bash setup.sh` (see [Self-hosting](self-hosting.md)).
 | Grafana | `minder-grafana` | 3000 | Dashboards / visualization |
 | Alertmanager | `minder-alertmanager` | 9093 | Alert routing |
 | Jaeger | `minder-jaeger` | Traefik-only (no host port) | Distributed tracing |
-| OTel Collector | `minder-otel-collector` | 14317 / 14318 / 18888 | OpenTelemetry pipeline |
-| InfluxDB | `minder-influxdb` | 8086 | Time-series data |
-| Telegraf | `minder-telegraf` | — (internal) | Metrics collection agent |
+| OTel Collector | `minder-otel-collector` | 4317 / 4318 / 8888 | OpenTelemetry pipeline |
+| InfluxDB 3 | `minder-influxdb` | — (internal; only `timeseries-gateway` holds its admin token) | Time-series data |
+| Telegraf | `minder-telegraf` | — (internal) | Metrics collection agent. Writes to InfluxDB through `timeseries-gateway` with its own credential |
 
 ### Exporters (all internal)
 
@@ -31,13 +31,17 @@ through `bash setup.sh` (see [Self-hosting](self-hosting.md)).
 | redis-exporter | 9121 | Yes |
 | rabbitmq-exporter | 9090 | Yes |
 | node-exporter | 9100 | Yes |
-| cadvisor | 8080 | No — reachable directly, no scrape job configured |
+| cadvisor | 8080 | Yes (30 s interval; only the container metrics the dashboards use are kept) |
 | blackbox-exporter | 9115 | No — reachable directly, no scrape job configured |
 
-!!! note "OTel Collector ports are remapped"
-    The collector uses `14317` / `14318` / `18888` instead of the OpenTelemetry
-    defaults (`4317` / `4318`) to avoid a conflict with Jaeger's own OTLP ports
-    on the all-in-one image.
+Prometheus also scrapes Traefik, each core service's `/metrics`, Telegraf and the
+Collector's own pipeline metrics. The Marketplace job is present in the config
+but commented out.
+
+!!! note "OTel Collector ports"
+    The collector publishes the standard OpenTelemetry ports (`4317` gRPC and
+    `4318` HTTP) and its own metrics on `8888`, all on `127.0.0.1`. Jaeger
+    publishes no ingest ports: every trace arrives through the Collector.
 
 ## Quick start
 
@@ -79,7 +83,9 @@ The Jaeger UI has no loopback port — it is reachable only through Traefik (e.g
 ### Grafana access
 
 - URL: `http://localhost:3000`
-- Default credentials: `admin` / `admin` — **change on first login**.
+- Credentials: user `GRAFANA_ADMIN_USER` (default `admin`) and the password in
+  `GRAFANA_PASSWORD`. Setup generates a random per-deployment password into the
+  root `.env`; there is no shared default.
 
 Grafana is also routed through Traefik behind Authelia forward-auth:
 unauthenticated requests are redirected (`302`) to the Authelia portal. Full
@@ -93,15 +99,15 @@ The Prometheus datasource is pre-provisioned to point at
 ## Instrumentation (OpenTelemetry)
 
 Application services are instrumented with OpenTelemetry and export to the
-**OTel Collector** at `minder-otel-collector:14317` (OTLP gRPC). The collector
+**OTel Collector** at `minder-otel-collector:4317` (OTLP gRPC). The collector
 fans out to Jaeger for traces and to the metrics pipeline. Prometheus
 additionally scrapes the app services and exporters directly.
 
 ```
-services ──OTLP──▶ otel-collector (:14317 gRPC / :14318 HTTP)
+services ──OTLP──▶ otel-collector (:4317 gRPC / :4318 HTTP)
                        │
                        ├──▶ Jaeger (traces, UI via Traefik only)
-                       └──▶ metrics pipeline (:18888)
+                       └──▶ metrics pipeline (:8888)
 
 Prometheus (:9090) ──scrape──▶ app services + exporters
 ```
@@ -141,17 +147,19 @@ scrape_configs:
       - targets: ['node-exporter:9100']
 ```
 
-cAdvisor and blackbox-exporter run and are reachable directly, but are not
-scraped by Prometheus (no job configured).
+blackbox-exporter runs and is reachable directly, but is not scraped by
+Prometheus (no job configured).
 
 ## Available dashboards
 
-Grafana is pre-provisioned with dashboards covering:
+Grafana is pre-provisioned with these dashboards:
 
-- **Minder Overview** — service health, request metrics, error rates, resource usage
-- **API Gateway** — HTTP request count / latency, health, JWT auth activity
-- **PostgreSQL** — database size, connection counts, query performance
-- **Redis** — memory usage, connections, cache hit rate
+- **Minder Platform Overview** — service status and request rate and duration
+- **Minder Complete Overview** — the same plus PostgreSQL connections and size, and Redis memory and connections
+- **Minder System Overview** — container CPU, memory and network, service health, disk usage
+- **System Performance** — API gateway request rate, p95 response time, database pool usage, Redis cache hit rate
+- **Plugin Health Monitoring** — plugin status, data collection rate and errors
+- **Data Quality Metrics** — records per plugin, data freshness, storage usage
 
 ## Alerting
 

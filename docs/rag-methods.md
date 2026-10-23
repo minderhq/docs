@@ -3,7 +3,7 @@
 Minder splits retrieval-augmented generation across two services:
 
 - **RAG pipeline** (`rag-pipeline`) — text RAG over your documents. One query
-  endpoint, `POST /pipeline/{id}/query`, supports several retrieval and
+  endpoint, `POST /v1/pipeline/{id}/query`, supports several retrieval and
   generation methods, all selected with a single `method` field.
 - **Graph RAG** (`graph-rag`) — a different paradigm: entities and
   relationships extracted from your text (spaCy NER) and stored in Neo4j, then
@@ -11,12 +11,12 @@ Minder splits retrieval-augmented generation across two services:
 
 Every method and enhancer below is reachable through the live query endpoint.
 Which ones actually run depends on the host's installed libraries and models —
-`GET /capabilities` reports exactly what is active on a given deployment, so
+`GET /v1/capabilities` reports exactly what is active on a given deployment, so
 capabilities **self-degrade by hardware** rather than failing.
 
 ## Requesting a method
 
-All methods and enhancers are requested on `POST /pipeline/{id}/query`:
+All methods and enhancers are requested on `POST /v1/pipeline/{id}/query`:
 
 ```json
 {
@@ -43,7 +43,9 @@ RAPTOR additionally needs `build_tree: true` set on the earlier
 which is fixed at ingest time and can never be overridden per query (it must
 match whatever was used to embed the documents). It resolves most-specific
 first: an explicit per-query `llm_model` → the pipeline's configured `llm_model`
-→ the first referenced knowledge base's `llm_model` → the platform default.
+→ the first referenced knowledge base's `llm_model` → the organization's
+*Answer* default model → the install default (`OLLAMA_LLM_MODEL`). See
+[How Minder chooses a model](model-providers.md#how-minder-chooses-a-model).
 Omit the field to use whatever the pipeline or knowledge base already has.
 
 ### Honest degradation
@@ -152,7 +154,7 @@ These are orthogonal and apply to any method:
 
 | Enhancer | Flag | What it does |
 |----------|------|--------------|
-| **Re-ranking** | `rerank: true` | Re-orders retrieved candidates with a cross-encoder when `sentence-transformers` is installed, otherwise an LLM re-rank. `GET /capabilities` reports which backend is active. |
+| **Re-ranking** | `rerank: true` | Re-orders retrieved candidates with a cross-encoder when `sentence-transformers` is installed, otherwise an LLM re-rank. `GET /v1/capabilities` reports which backend is active. |
 | **Contextual compression** | `compress: true` | Extracts only the query-relevant sentences from retrieved chunks before generation. |
 
 ## Retrieval strategies
@@ -195,6 +197,6 @@ context window).
 
 ---
 
-`GET /capabilities` on the RAG pipeline is the source of truth for what is
+`GET /v1/capabilities` on the RAG pipeline is the source of truth for what is
 active on any given host — always check it rather than assuming a method or
 enhancer is available.

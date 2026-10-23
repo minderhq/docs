@@ -1,7 +1,8 @@
 # Transactional email
 
 Minder can send a small set of **transactional emails**: self-service password
-reset links, and security notices such as "your password was changed". Email is
+reset links, registration verification links, security notices such as "your
+password was changed", and organization notices. Email is
 **off by default**. This page follows the operator's path from "do I need this?"
 to running it in production.
 
@@ -10,8 +11,8 @@ to running it in production.
       as it did before email existed.
     - Production backend: `smtp`, through your own relay or a mail provider.
     - Configuration lives in the root `./.env`. **Changes take effect only when
-      the api-gateway container is recreated** (see
-      [Apply the change](#apply-the-change)).
+      the api-gateway container is recreated.** `bash setup.sh restart
+      api-gateway` does that (see [Apply the change](#apply-the-change)).
     - Operator tooling: `bash setup.sh email ...`. Health: the `email` object in
       the api-gateway `/health`.
 
@@ -33,6 +34,8 @@ affected. Password recovery is done by an administrator:
 | Self-service password reset | A **Forgot password?** link on the sign-in page. It sends a one-time reset link to local accounts. |
 | Notices for SSO accounts | An SSO-linked account that asks for a reset gets a notice that points to its identity provider. It never gets a reset link. |
 | Security notices | A "your password was changed" email on **every** password path: self-service reset, change-password and administrator resets. A "your sessions were ended" email when sessions are revoked without a password change. |
+| Registration email verification | When [`EMAIL_VERIFICATION_REQUIRED`](#email-verification) is on, a new local account gets a link it must open before it can use anything. |
+| Organization notices | Organization admins are emailed when someone sends an access request, the requester is emailed the decision, and the owners of a personal organization are emailed when an operator converts it to a standard one. |
 
 Email is sent from the **api-gateway** process. A background worker drains a
 database outbox, so no request ever waits on SMTP.
@@ -141,7 +144,8 @@ PASSWORD_RESET_TOKEN_TTL_MINUTES=30
 | `EMAIL_PRODUCT_NAME` | `Minder` | 1-64 characters on one line. The only branding templates render. |
 | `EMAIL_DEFAULT_LOCALE` | `en` | Fallback language. The templates ship in `en` and `tr`. |
 | `EMAIL_MAX_PER_MINUTE` | `60` | 1-10000. Global send ceiling. Excess mail waits in the outbox; it is not dropped. |
-| `EMAIL_MAX_PER_RECIPIENT_PER_DAY` | `10` | 1-1000. Rolling 24 h per address. Security notices are exempt. |
+| `EMAIL_MAX_PER_RECIPIENT_PER_DAY` | `10` | 1-1000. Rolling 24 h per address, for mail about the recipient's own account: reset, verification and notice mail. Security notices are exempt. See [Per-recipient budgets](#per-recipient-budgets). |
+| `EMAIL_MAX_TENANT_PER_RECIPIENT_PER_DAY` | `10` | 1-1000. A separate rolling 24 h budget per address for mail an organization triggers, such as access-request and organization notices. |
 | `EMAIL_OUTBOX_PII_RETENTION_DAYS` | `7` | 0 up to `EMAIL_OUTBOX_RETENTION_DAYS`. See [Retention](#retention). |
 | `EMAIL_OUTBOX_RETENTION_DAYS` | `30` | 1-3650 |
 | `SMTP_HOST` | *(empty)* | Required when `EMAIL_BACKEND=smtp`. |
@@ -153,11 +157,16 @@ PASSWORD_RESET_TOKEN_TTL_MINUTES=30
 | `PASSWORD_RESET_TOKEN_TTL_MINUTES` | `30` | 15-60. Startup refuses any other value. |
 | `PASSWORD_RESET_MAX_PER_HOUR` | `3` | Per account, at least 1. |
 | `PASSWORD_RESET_MIN_INTERVAL_SECONDS` | `60` | Per account, not negative. |
+| `PASSWORD_RESET_REUSE_WINDOW_MINUTES` | `10` | A reset link stays usable for at least this long after it was sent. A new request in that window sends nothing and does not replace the live link, so repeated requests can't keep voiding a link in the victim's mailbox. `0` always replaces. Must not exceed the link lifetime. |
 | `PASSWORD_RESET_MIN_RESPONSE_MS` | `400` | 0-10000. Response-time floor for reset requests. |
 | `AUTH_EMAIL_IP_LIMIT_PER_MINUTE` | *(empty)* | Per-IP limit on the reset routes. Empty means the same as the auth rate limit. `0` turns the per-IP limit off on these routes only. |
 | `SSO_PASSWORD_HELP_URL` | *(empty)* | An http(s) URL, used as the link in the SSO-account notice. When empty, the notice links to the identity provider's issuer URL. |
 | `EMAIL_PLACEHOLDER_DOMAINS` | *(empty)* | Comma-separated domains that are never mailed. The SSO fallback placeholder domain is always included. |
 | `PASSWORD_RESET_EMAIL_FOR_PLATFORM_ADMINS` | *(unset)* | When unset, it is `false` whenever Platform Admin 2FA is required (always in SaaS), and `true` otherwise. |
+| `EMAIL_VERIFICATION_REQUIRED` | *(empty)* | Empty means on only with `SAAS_MODE=true` and email enabled. `true` needs email on (startup refuses it with `EMAIL_BACKEND=none`). See [Email verification](#email-verification). |
+| `EMAIL_VERIFY_TOKEN_TTL_HOURS` | `24` | 24-72. Lifetime of a verification link. |
+| `EMAIL_VERIFY_RESEND_MIN_INTERVAL_SECONDS` | `60` | Per account: no new verification link within this interval of the previous one. |
+| `EMAIL_VERIFY_MAX_PER_DAY` | `5` | Per account, including the link sent at registration. Over it, resend answers `429` with `Retry-After`. |
 | `ACCOUNT_TOKEN_RETENTION_DAYS` | `7` | At least 1. |
 
 An inconsistent value (an out-of-range number, `smtp` without `SMTP_HOST`, or a
@@ -172,19 +181,19 @@ Refusing to start, email configuration: SMTP_HOST is required when EMAIL_BACKEND
 
 The backend is chosen **once, at startup**. The gateway also decides at startup
 whether to mount the reset routes. Docker Compose bakes `.env` values into the
-container when it **creates** it. A plain container restart therefore keeps the
-old values, and you have to recreate the container:
+container when it **creates** it, so a plain container restart keeps the old
+values. Use a setup command that re-applies `.env` and recreates the container
+when its configuration changed:
 
 ```bash
-bash setup.sh start      # re-applies ./.env and recreates only the services whose configuration changed
-# or the full cycle:
-bash setup.sh restart    # stop everything, then start
+bash setup.sh restart api-gateway   # re-syncs ./.env and recreates only this service if it changed
+# or:
+bash setup.sh start                 # re-applies ./.env and recreates every service whose configuration changed
 ```
 
 !!! warning
-    `bash setup.sh restart api-gateway` and `docker compose restart api-gateway`
-    restart the **existing** container with its **old** environment. They do
-    not pick up `.env` edits.
+    `docker compose restart api-gateway` restarts the **existing** container
+    with its **old** environment. It does not pick up `.env` edits.
 
 Then confirm that the gateway came up with the new backend:
 
@@ -386,6 +395,44 @@ Each of these outcomes is visible only to operators, through the audit log
 `minder_password_reset_requests_total{outcome}` metric. The requester always
 gets the same answer.
 
+### Email verification {#email-verification}
+
+Registration email verification is separate from password reset. When it is on,
+an account created through `POST /v1/auth/register` is sent a verification link.
+Until the user opens it the account can sign in, but every request outside a
+small allowlist (resend, change-password, reading its own profile) is refused
+with `403` `email_verification_required`. In `open` registration mode, the
+account's personal workspace is created once it is verified.
+
+- The link is valid for `EMAIL_VERIFY_TOKEN_TTL_HOURS` and is confirmed with
+  `POST /v1/auth/verify-email`, which the client sends on an explicit user
+  action, never on page load. A resend (`POST /v1/auth/verify-email/resend`)
+  invalidates older links.
+- `GET /v1/auth/capabilities` reports `email_verification`.
+- Turning it **off** lifts the restriction from every unverified account.
+  Turning it **on** never locks out an account that was not asked to verify: at
+  that startup, accounts registered while it was off are marked verified. An
+  account that registered while it was on and has not verified stays
+  restricted.
+
+### Per-recipient budgets {#per-recipient-budgets}
+
+The per-address daily cap has separate budgets, so one kind of mail can't use
+up another's:
+
+- **Account recovery** (reset links, SSO and administrator notices):
+  `EMAIL_MAX_PER_RECIPIENT_PER_DAY`.
+- **Other account mail** (verification, password-changed and
+  sessions-ended notices, the send-test message): the same setting, counted
+  separately from recovery mail.
+- **Tenant-originated mail** (anything an organization can send to an arbitrary
+  address): `EMAIL_MAX_TENANT_PER_RECIPIENT_PER_DAY`.
+
+So repeated reset requests, or a hostile organization sending to a victim's
+address, can't use up the budget that verification mail needs, and the reverse.
+Security notices are exempt from the cap. An over-budget message is skipped
+without changing what the requester sees.
+
 ## 7. Operate
 
 ### The outbox and retries
@@ -410,8 +457,9 @@ credentials, queued mail waits instead of being thrown away, and
 `EmailSendFailureRatioHigh` / `EmailOutboxLag` tell you something is wrong.
 
 **Delivery deadlines.** A message is useful only for a limited time: **15 min**
-for reset links and SSO/admin notices, and **24 h** for security notices. After
-that, it expires instead of arriving late.
+for reset links and SSO/admin notices, and **24 h** for security notices,
+verification links and organization notices. After that, it expires instead of
+arriving late.
 
 ### Dead letters: retry and replay
 
@@ -512,7 +560,7 @@ links: `docker logs minder-api-gateway 2>&1 | grep -i email`.
 | `permanent failure: smtp_5xx` | The relay refuses the sender (domain not verified, relay access denied) | Verify the `EMAIL_FROM` domain with the provider, or allow this host on your relay. |
 | `send-test` says `ok`, but nothing arrives | Spam folder, provider-side hold, or a rejection after the relay accepted the message | Check spam and the provider's activity log. Check the [sender DNS](#4-sender-dns-spf-dkim-dmarc) records. |
 | Mail lands in spam | SPF/DKIM/DMARC missing or not aligned with the `EMAIL_FROM` domain, or a new domain/IP with no reputation | Publish all three records, confirm `dmarc=pass` in the headers, and use a domain you control in `EMAIL_FROM`. |
-| `/health` shows `"backend": "none"` after you configured SMTP | The container still runs with the old environment | Recreate it: `bash setup.sh start` (not `restart api-gateway`). |
+| `/health` shows `"backend": "none"` after you configured SMTP | The container still runs with the old environment, for example after a plain `docker compose restart` | Recreate it: `bash setup.sh restart api-gateway` (or `bash setup.sh start`). |
 | Messages `cancelled` with `backend_disabled` | The gateway started once with email off (for example, before `.env` was applied) | Expected. Fix the configuration and ask users to request a new reset link. |
 | `EmailOutboxLag` fires, `status` is `ok` | Sends are throttled by `EMAIL_MAX_PER_MINUTE`, or retries are backing off | Check `email outbox status`. Raise `EMAIL_MAX_PER_MINUTE` if your provider allows it. |
 | Reset requests return `429` | The per-IP limit on the reset routes. Many users behind one NAT can hit it. | Raise `AUTH_EMAIL_IP_LIMIT_PER_MINUTE`, or set it to `0` to rely on the per-account and per-recipient limits. |

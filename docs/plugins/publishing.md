@@ -22,18 +22,24 @@ a top-level `<name>/__init__.py` package that imports from `minder_plugin_sdk`.
 
 ## How it reaches a running Minder
 
-The plugin-registry **discovers and loads module plugins on startup** and lists
-them at `/v1/plugins`. A module plugin is Python that runs **in-process** in the
-registry, so it is arbitrary code and isn't sandboxed. That's why catalog plugins
-are reviewed and validated before they merge, and why plugins get a
-least-privilege database role (their own `plugin_data` schema, no access to
-platform tables). A declarative [manifest](manifest.md) plugin runs no plugin
-code. See the [plugin trust model](../security.md#plugin-trust-model).
+The plugin-registry **discovers the catalog's plugins on startup** from a
+read-only copy it only parses, never imports, and lists them at `/v1/plugins`.
+It then asks a `plugin-runner` container to load each one: a code plugin in the
+`trusted` or `privileged` group, a declarative [manifest](manifest.md) plugin in
+the `declarative` group. Plugin code is arbitrary Python inside its runner, which
+has no platform secrets and a restricted network. That's why catalog plugins
+are reviewed and validated before they merge, and why a plugin gets only a
+least-privilege database role of its own (its own `plugin_<name>` schema, no
+access to platform tables). The catalog's `runner_group` for a plugin says which
+group hosts it, and a plugin that needs LAN egress or manages a sidecar belongs
+in `privileged`. See the [plugin trust model](../security.md#plugin-trust-model).
 
-First-party plugins ship inside the Minder core. Wiring a running instance to
-also load this public catalog is a per-deployment integration step;
-git-submodule vendoring, the way the web client is already pulled in, is planned
-but not yet wired.
+The platform pins this public catalog as a git submodule, the way it pulls in the
+web client, so an instance runs the catalog revision that its platform release
+pins. Third parties can also install a **manifest** plugin straight from a git
+repository, without a rebuild (`POST /v1/plugins/install-from-git`, Platform
+Admin only; only the manifest is fetched and validated, and repository code is
+never imported or run).
 
 ## Governance
 
