@@ -3812,6 +3812,17 @@
       },
       "MyOrgItem": {
         "properties": {
+          "chat_history_retention_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Chat History Retention Days"
+          },
           "default_locale": {
             "anyOf": [
               {
@@ -4241,6 +4252,17 @@
       },
       "OrgDetailOut": {
         "properties": {
+          "chat_history_retention_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Chat History Retention Days"
+          },
           "created_at": {
             "anyOf": [
               {
@@ -5895,6 +5917,22 @@
       },
       "OrgUpdateRequest": {
         "properties": {
+          "chat_history_retention_days": {
+            "anyOf": [
+              {
+                "enum": [
+                  30,
+                  90,
+                  365
+                ],
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Chat History Retention Days"
+          },
           "default_locale": {
             "anyOf": [
               {
