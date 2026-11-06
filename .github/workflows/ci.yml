@@ -45,7 +45,7 @@ jobs:
         # activate-environment creates a venv (outside the checkout, so it never
         # ends up in the built site) and puts it on PATH for later steps --
         # `uv pip install` needs a venv rather than the system interpreter.
-        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           python-version: ${{ github.event_name != 'push' && '3.12' || '' }}
           activate-environment: true
