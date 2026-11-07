@@ -30,6 +30,28 @@ flow, verification, rollback, and per-image caveats.
     To change an image version: edit the `image:` tag in the Compose file, then
     apply with `bash setup.sh update`.
 
+## Upgrade note: one hostname with path routing
+
+Releases with `MINDER_DOMAIN` serve the console, API, sign-in and public
+chatbot from one hostname (`/`, `/api`, `/auth`, `/c/<slug>` and `/embed.js`).
+The default is `minder.local`. On an existing install:
+
+- Add `minder.local` to the hosts file of every device you use, or move to a
+  real name with `bash setup.sh domain <name>`. `bash setup.sh doctor` lists
+  what is missing.
+- `client.minder.local` redirects to the new address for one release.
+  `api.minder.local`, `authelia.minder.local` and the operator tools keep
+  their old names for now.
+- Sign-in moved under `/auth`: the OIDC issuer is now
+  `https://<MINDER_DOMAIN>/auth`. If you set `AUTHELIA_ISSUER_URL`,
+  `MINDER_OIDC_REDIRECT_URI`, `MINDER_CLIENT_BASE_URL` or `CORS_ALLOWED_ORIGINS`
+  yourself, update or remove them. When unset, they derive from the domain.
+- Setup moves the old shipped web client URLs in `.env` to same-origin ones
+  (`/api`, `/api/v1/auth/oidc/login`, `/auth/`) and keeps values you set
+  yourself. The rebuilt client then talks to `/api` on its own domain.
+- Behind your own TLS proxy, see
+  [Choosing a domain and TLS mode](self-hosting.md#choosing-a-domain-and-tls-mode).
+
 ## Pre-upgrade checklist
 
 - [ ] Enough free disk for a backup (databases can be several GB).

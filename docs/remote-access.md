@@ -59,8 +59,14 @@ such a network, you already have everything you need.
     so if anything looks broken, prefer the hosts-file approach with the exact
     name.
 
+## A real name on your VPN
+
+If you run a reverse proxy with a valid certificate (for example Caddy with a
+wildcard certificate) and VPN split DNS, give Minder a real name instead of
+hosts-file entries. Every device on the VPN then opens it with no setup. See
+[Choosing a domain and TLS mode](self-hosting.md#choosing-a-domain-and-tls-mode).
+
 ## What's not supported yet
 
-Public internet exposure with real DNS and a CA-issued certificate isn't set up
-out of the box. The VPN approach above is the supported path today — not a
-workaround for a first-class feature that exists elsewhere.
+Public internet exposure isn't hardened out of the box. The VPN approach above
+is the supported path today.
