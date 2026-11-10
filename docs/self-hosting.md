@@ -42,7 +42,7 @@ Minder is served from **one hostname**, `MINDER_DOMAIN`, with path routing:
 | `/` | the web console |
 | `/api/…` | the API gateway |
 | `/auth/…` | sign-in (Authelia: SSO, OIDC, the self-service portal) |
-| `/c/<slug>`, `/embed.js` | public chatbot page and its embed widget |
+| `/c/<slug>`, `/embed.js` | public chatbot page and its embed widget: `<script src="https://<MINDER_DOMAIN>/embed.js" data-bot="<slug>" async></script>` |
 
 Because everything shares one origin, the browser makes no cross-origin calls,
 and you need **one DNS record and one certificate**. Sign-in, OIDC redirects,
@@ -54,7 +54,7 @@ Pick the domain and who terminates TLS for it:
 | `--tls-mode` | Use it when | What happens |
 |---|---|---|
 | `local` (default) | trying Minder on one machine or a LAN | Minder's own CA signs a certificate for the domain; you trust the CA once per device (`bash setup.sh trust-ca`). The default domain `minder.local` needs a hosts-file line. |
-| `proxy` | you already run a TLS-terminating reverse proxy (Caddy, nginx, Traefik, …) with a valid certificate | Minder serves plain HTTP on port 80 for your proxy. It trusts `X-Forwarded-Proto`/`-For` **only** from `--trusted-proxies`, so cookies stay `Secure` and links stay `https`. |
+| `proxy` | you already run a TLS-terminating reverse proxy with a valid certificate (Caddy is the tested one) | Minder serves plain HTTP on port 80 and accepts it **only** from the proxy's own address (`--trusted-proxies`, a single address such as `192.168.1.10/32`, never a range). It trusts `X-Forwarded-*` only from there, so cookies stay `Secure` and links stay `https`. The proxy must overwrite `X-Forwarded-Host`, `-Proto` and `-For`, and strip `X-Forwarded-Uri`. The operator UIs on `*.minder.local` are not routed in this mode: reach them over the loopback ports or an SSH tunnel. |
 | `acme` | the domain has public DNS pointing at this host and port 443 is reachable | Let's Encrypt (TLS-ALPN-01) issues the certificate. |
 
 Set them at install time (below) or later:
@@ -72,8 +72,11 @@ A common home setup has Caddy on one machine holding a wildcard certificate for
 Tailscale tailnet, and split DNS (for example an AdGuard or Pi-hole rewrite)
 resolves `minder.home.example.com` to Caddy.
 
-1. Install Minder in proxy mode, trusting only Caddy's address. Use its LAN
-   address, or `100.64.0.0/10` if Caddy reaches Minder over the tailnet:
+1. Install Minder in proxy mode, trusting only Caddy's own address: the one
+   Minder sees connections from (its LAN address, or its single tailnet
+   address such as `100.101.102.103/32`). Never a range: every listed address
+   may forge `X-Forwarded-*`. Optionally bind port 80 to the interface Caddy
+   uses with `MINDER_HTTP_BIND=<minder-lan-address>` in `.env`.
 
     ```bash
     bash setup.sh install --profile standard \
@@ -81,13 +84,16 @@ resolves `minder.home.example.com` to Caddy.
       --trusted-proxies 192.168.1.10/32
     ```
 
-2. Add a site to Caddy. Caddy sets `X-Forwarded-Proto: https` and
-   `X-Forwarded-For` itself:
+2. Add a site to Caddy. With no `trusted_proxies` of its own, Caddy
+   overwrites `X-Forwarded-For`, `-Proto` and `-Host` with the real values;
+   the `header_up -X-Forwarded-Uri` line drops a client-supplied one:
 
     ```caddyfile
     minder.home.example.com {
         tls /etc/caddy/certs/wildcard.crt /etc/caddy/certs/wildcard.key
-        reverse_proxy http://<minder-host>:80
+        reverse_proxy http://<minder-host>:80 {
+            header_up -X-Forwarded-Uri
+        }
     }
     ```
 
@@ -96,8 +102,8 @@ resolves `minder.home.example.com` to Caddy.
    with no hosts-file edits and no certificate warnings.
 
 !!! warning "Keep port 80 closed to everything but the proxy"
-    In proxy mode the Minder host serves plain HTTP on port 80. Firewall it so
-    only the proxy can reach it.
+    In proxy mode the Minder host serves plain HTTP on port 80. Minder refuses
+    every other source address, but firewall it to the proxy as well.
 
 ## Step 1 — Install
 

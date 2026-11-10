@@ -49,6 +49,9 @@ The default is `minder.local`. On an existing install:
 - Setup moves the old shipped web client URLs in `.env` to same-origin ones
   (`/api`, `/api/v1/auth/oidc/login`, `/auth/`) and keeps values you set
   yourself. The rebuilt client then talks to `/api` on its own domain.
+- The public chatbot snippet can now be the shorter
+  `<script src="https://<MINDER_DOMAIN>/embed.js" data-bot="<slug>" async></script>`;
+  the old `/api/public/chat/widget.js` keeps working.
 - Behind your own TLS proxy, see
   [Choosing a domain and TLS mode](self-hosting.md#choosing-a-domain-and-tls-mode).
 
