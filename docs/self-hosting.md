@@ -74,7 +74,7 @@ resolves `minder.home.example.com` to Caddy.
 
 1. Install Minder in proxy mode, trusting only Caddy's own address: the one
    Minder sees connections from (its LAN address, or its single tailnet
-   address such as `100.101.102.103/32`). Never a range: every listed address
+   address such as `192.0.2.10/32`). Never a range: every listed address
    may forge `X-Forwarded-*`. Optionally bind port 80 to the interface Caddy
    uses with `MINDER_HTTP_BIND=<minder-lan-address>` in `.env`.
 
