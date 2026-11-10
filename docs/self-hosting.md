@@ -33,33 +33,92 @@ the steps in sequence; each one ends with a check.
 
     Run `wsl --shutdown` once afterwards for it to take effect.
 
-## Step 1 — Decide how you will sign in, then install
+## Choosing a domain and TLS mode
+
+Minder is served from **one hostname**, `MINDER_DOMAIN`, with path routing:
+
+| Path | What |
+|---|---|
+| `/` | the web console |
+| `/api/…` | the API gateway |
+| `/auth/…` | sign-in (Authelia: SSO, OIDC, the self-service portal) |
+| `/c/<slug>`, `/embed.js` | public chatbot page and its embed widget: `<script src="https://<MINDER_DOMAIN>/embed.js" data-bot="<slug>" async></script>` |
+
+Because everything shares one origin, the browser makes no cross-origin calls,
+and you need **one DNS record and one certificate**. Sign-in, OIDC redirects,
+emailed links and CORS all derive from `MINDER_DOMAIN`. You don't set them one
+by one.
+
+Pick the domain and who terminates TLS for it:
+
+| `--tls-mode` | Use it when | What happens |
+|---|---|---|
+| `local` (default) | trying Minder on one machine or a LAN | Minder's own CA signs a certificate for the domain; you trust the CA once per device (`bash setup.sh trust-ca`). The default domain `minder.local` needs a hosts-file line. |
+| `proxy` | you already run a TLS-terminating reverse proxy with a valid certificate (Caddy is the tested one) | Minder serves plain HTTP on port 80 and accepts it **only** from the proxy's own address (`--trusted-proxies`, a single address such as `192.168.1.10/32`, never a range). It trusts `X-Forwarded-*` only from there, so cookies stay `Secure` and links stay `https`. The proxy must overwrite `X-Forwarded-Host`, `-Proto` and `-For`, and strip `X-Forwarded-Uri`. The operator UIs on `*.minder.local` are not routed in this mode: reach them over the loopback ports or an SSH tunnel. |
+| `acme` | the domain has public DNS pointing at this host and port 443 is reachable | Let's Encrypt (TLS-ALPN-01) issues the certificate. |
+
+Set them at install time (below) or later:
+
+```bash
+bash setup.sh domain minder.example.com --tls-mode proxy --trusted-proxies 192.168.1.10/32
+bash setup.sh restart
+bash setup.sh domain        # shows the current settings and URLs
+```
+
+### Example: behind Caddy, reached over a tailnet
+
+A common home setup has Caddy on one machine holding a wildcard certificate for
+`*.home.example.com`, and Minder on another machine. Devices reach both over a
+Tailscale tailnet, and split DNS (for example an AdGuard or Pi-hole rewrite)
+resolves `minder.home.example.com` to Caddy.
+
+1. Install Minder in proxy mode, trusting only Caddy's own address: the one
+   Minder sees connections from (its LAN address, or its single tailnet
+   address such as `192.0.2.10/32`). Never a range: every listed address
+   may forge `X-Forwarded-*`. Optionally bind port 80 to the interface Caddy
+   uses with `MINDER_HTTP_BIND=<minder-lan-address>` in `.env`.
+
+    ```bash
+    bash setup.sh install --profile standard \
+      --domain minder.home.example.com --tls-mode proxy \
+      --trusted-proxies 192.168.1.10/32
+    ```
+
+2. Add a site to Caddy. With no `trusted_proxies` of its own, Caddy
+   overwrites `X-Forwarded-For`, `-Proto` and `-Host` with the real values;
+   the `header_up -X-Forwarded-Uri` line drops a client-supplied one:
+
+    ```caddyfile
+    minder.home.example.com {
+        tls /etc/caddy/certs/wildcard.crt /etc/caddy/certs/wildcard.key
+        reverse_proxy http://<minder-host>:80 {
+            header_up -X-Forwarded-Uri
+        }
+    }
+    ```
+
+3. Point `minder.home.example.com` at Caddy in your DNS (the split-DNS rewrite).
+   Phones and laptops on the tailnet then open `https://minder.home.example.com`
+   with no hosts-file edits and no certificate warnings.
+
+!!! warning "Keep port 80 closed to everything but the proxy"
+    In proxy mode the Minder host serves plain HTTP on port 80. Minder refuses
+    every other source address, but firewall it to the proxy as well.
+
+## Step 1 — Install
 
 The **first administrator** signs in through the bundled identity provider
 (Authelia) with the `admin` account the installer creates. Accounts created
 with a username and password in the web client are always regular users. They
-can't create the first admin.
-
-So, **before installing**, tell the web client where its *Sign in with SSO*
-button should go. In the repository's root `.env` (copy `.env.example` if it
-doesn't exist yet), set:
-
-```bash
-CLIENT_OIDC_LOGIN_URL=https://api.minder.local/v1/auth/oidc/login
-CLIENT_AUTHELIA_PORTAL_URL=https://authelia.minder.local
-```
-
-Replace `minder.local` with your own domain if you serve Minder under a real
-one. These values are built into the web client image, which is why they go in
-before the install.
-
-Then install:
+can't create the first admin. The web client's *Sign in with SSO* button needs
+no configuration: it points at `/api` on the console's own domain.
 
 ```bash
 # Requires licensed access: the repository and images come with your license.
 git clone <your-licensed-repository-url> minder
 cd minder
 bash setup.sh install --profile standard   # minimal | standard | full
+# Your own domain (see above): add --domain <name> [--tls-mode proxy|acme]
 ```
 
 - `--profile` picks the initial **bundles** (capability groups) to enable.
@@ -75,14 +134,14 @@ bash setup.sh install --profile standard   # minimal | standard | full
 
 **Check:** the install ends with a *Ready!* banner listing the URLs.
 
-## Step 2 — Make the web addresses work on your computer
+## Step 2 — Make the web address work on your computer
 
-Minder's web UIs live under `*.minder.local` names behind its own reverse proxy
-and TLS certificate. Your computer needs to resolve those names and trust that
-certificate:
+With your own domain and DNS (proxy or acme mode), skip to the check at the end
+of this step. With the default `minder.local` and its local CA, your computer
+needs to resolve the name and trust the certificate:
 
 1. **Add the hosts line** printed by the banner, for example
-   `127.0.0.1 client.minder.local api.minder.local authelia.minder.local …`:
+   `127.0.0.1 minder.local chat.minder.local …`:
     - Linux/macOS: `/etc/hosts`
     - Windows: `C:\Windows\System32\drivers\etc\hosts` (edit as Administrator)
 2. **Trust Minder's local certificate authority:**
@@ -93,7 +152,8 @@ certificate:
 
     Then restart the browser.
 
-**Check:** `https://client.minder.local` opens without a certificate warning.
+**Check:** `https://<MINDER_DOMAIN>` (for example `https://minder.local`) opens
+without a certificate warning.
 
 To use Minder from other computers on your network, add the same hosts line
 there with the server's LAN IP instead of `127.0.0.1`, and trust the CA there
@@ -101,7 +161,7 @@ too.
 
 ## Step 3 — Sign in as the first administrator
 
-1. Open `https://client.minder.local` and choose **Giriş yap / Sign in** →
+1. Open `https://<MINDER_DOMAIN>` and choose **Giriş yap / Sign in** →
    **Sign in with SSO (Authelia)**.
 2. Sign in as `admin` with the password from Step 1.
 3. You land back in the client as an **instance admin**. The first admin to
@@ -109,15 +169,14 @@ too.
    operator role) automatically, once. See [Platform Admin](platform-admin.md)
    to grant it to others later.
 4. Change the generated password in the Authelia portal
-   (`https://authelia.minder.local`). See
+   (`https://<MINDER_DOMAIN>/auth/`). See
    [Authentication](authentication.md#the-admin-password).
 
 !!! note "No SSO button on the sign-in page?"
-    Then the client was built without `CLIENT_OIDC_LOGIN_URL`. Set the two
-    values from Step 1 in `.env`, rebuild the client with
-    `bash setup.sh update`, and reload the page. Opening the gateway's SSO URL
-    directly doesn't work: the client only accepts a sign-in that it started
-    itself.
+    Then `.env` sets `CLIENT_OIDC_LOGIN_URL` empty. Set it to
+    `/api/v1/auth/oidc/login`, rebuild the client with `bash setup.sh update`,
+    and reload the page. Opening the gateway's SSO URL directly doesn't work:
+    the client only accepts a sign-in that it started itself.
 
 **Check:** the user menu shows `admin`, and the sidebar has *Kuruluş /
 Organization* and *Sağlayıcılar ve varsayılanlar / Providers & defaults*.
